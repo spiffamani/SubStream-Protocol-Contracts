@@ -17,6 +17,24 @@ If the fan dislikes the content, they can cancel instantly and get their remaini
 - **Network:** Stellar Testnet
 - **Contract ID:** CAOUX2FZ65IDC4F2X7LJJ2SVF23A35CCTZB7KVVN475JCLKTTU4CEY6L
 
+## Subscription State Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Trial : subscribe()
+
+    Trial --> Active : trial period ends\n(stream begins)
+    Trial --> Expired : cancel() during trial
+
+    Active --> GracePeriod : balance runs low\n(below rate threshold)
+    Active --> Expired : cancel()
+
+    GracePeriod --> Active : top_up() refills balance
+    GracePeriod --> Expired : balance depleted\nor cancel()
+
+    Expired --> [*]
+```
+
 ## Running Tests
 To run the contract tests locally:
 ```bash
