@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Ledger}, token, vec, Address, Env};
 
 fn create_token_contract<'a>(env: &Env, admin: &Address) -> token::Client<'a> {
     token::Client::new(env, &env.register_stellar_asset_contract(admin.clone()))
@@ -147,4 +147,200 @@ fn test_top_up() {
     client.collect(&subscriber, &creator);
     assert_eq!(token.balance(&creator), 120);
     assert_eq!(token.balance(&contract_id), 30);
+}
+
+#[test]
+fn test_group_subscribe_and_collect_split() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let subscriber = Address::generate(&env);
+    let channel_id = Address::generate(&env);
+    let creator_1 = Address::generate(&env);
+    let creator_2 = Address::generate(&env);
+    let creator_3 = Address::generate(&env);
+    let creator_4 = Address::generate(&env);
+    let creator_5 = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    let token = create_token_contract(&env, &admin);
+    let token_admin = token::StellarAssetClient::new(&env, &token.address);
+    token_admin.mint(&subscriber, &1000);
+
+    let contract_id = env.register(SubStreamContract, ());
+    let client = SubStreamContractClient::new(&env, &contract_id);
+
+    let creators = vec![
+        &env,
+        creator_1.clone(),
+        creator_2.clone(),
+        creator_3.clone(),
+        creator_4.clone(),
+        creator_5.clone()
+    ];
+    let percentages = vec![&env, 40u32, 25u32, 15u32, 10u32, 10u32];
+
+    env.ledger().set_timestamp(100);
+
+    client.subscribe_group(
+        &subscriber,
+        &channel_id,
+        &token.address,
+        &500,
+        &10,
+        &creators,
+        &percentages,
+    );
+
+    assert_eq!(token.balance(&subscriber), 500);
+    assert_eq!(token.balance(&contract_id), 500);
+
+    env.ledger().set_timestamp(110);
+    client.collect_group(&subscriber, &channel_id);
+
+    // 10 seconds * 10 tokens/sec = 100 tokens split across creators.
+    assert_eq!(token.balance(&creator_1), 40);
+    assert_eq!(token.balance(&creator_2), 25);
+    assert_eq!(token.balance(&creator_3), 15);
+    assert_eq!(token.balance(&creator_4), 10);
+    assert_eq!(token.balance(&creator_5), 10);
+    assert_eq!(token.balance(&contract_id), 400);
+}
+
+#[test]
+fn test_group_cancel_collects_and_refunds_remaining_balance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let subscriber = Address::generate(&env);
+    let channel_id = Address::generate(&env);
+    let creator_1 = Address::generate(&env);
+    let creator_2 = Address::generate(&env);
+    let creator_3 = Address::generate(&env);
+    let creator_4 = Address::generate(&env);
+    let creator_5 = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    let token = create_token_contract(&env, &admin);
+    let token_admin = token::StellarAssetClient::new(&env, &token.address);
+    token_admin.mint(&subscriber, &1000);
+
+    let contract_id = env.register(SubStreamContract, ());
+    let client = SubStreamContractClient::new(&env, &contract_id);
+
+    let creators = vec![
+        &env,
+        creator_1.clone(),
+        creator_2.clone(),
+        creator_3.clone(),
+        creator_4.clone(),
+        creator_5.clone()
+    ];
+    let percentages = vec![&env, 40u32, 20u32, 20u32, 10u32, 10u32];
+
+    env.ledger().set_timestamp(100);
+    client.subscribe_group(
+        &subscriber,
+        &channel_id,
+        &token.address,
+        &200,
+        &2,
+        &creators,
+        &percentages,
+    );
+
+    env.ledger().set_timestamp(130); // 30s * 2 = 60 collected
+    client.cancel_group(&subscriber, &channel_id);
+
+    assert_eq!(token.balance(&creator_1), 24);
+    assert_eq!(token.balance(&creator_2), 12);
+    assert_eq!(token.balance(&creator_3), 12);
+    assert_eq!(token.balance(&creator_4), 6);
+    assert_eq!(token.balance(&creator_5), 6);
+    assert_eq!(token.balance(&subscriber), 940); // 1000 - 200 + 140 refund
+    assert_eq!(token.balance(&contract_id), 0);
+}
+
+#[test]
+#[should_panic(expected = "group channel must contain exactly 5 creators")]
+fn test_group_requires_exactly_five_creators() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let subscriber = Address::generate(&env);
+    let channel_id = Address::generate(&env);
+    let creator_1 = Address::generate(&env);
+    let creator_2 = Address::generate(&env);
+    let creator_3 = Address::generate(&env);
+    let creator_4 = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    let token = create_token_contract(&env, &admin);
+    let token_admin = token::StellarAssetClient::new(&env, &token.address);
+    token_admin.mint(&subscriber, &1000);
+
+    let contract_id = env.register(SubStreamContract, ());
+    let client = SubStreamContractClient::new(&env, &contract_id);
+
+    let creators = vec![
+        &env,
+        creator_1.clone(),
+        creator_2.clone(),
+        creator_3.clone(),
+        creator_4.clone()
+    ];
+    let percentages = vec![&env, 25u32, 25u32, 25u32, 25u32];
+
+    client.subscribe_group(
+        &subscriber,
+        &channel_id,
+        &token.address,
+        &100,
+        &1,
+        &creators,
+        &percentages,
+    );
+}
+
+#[test]
+#[should_panic(expected = "percentages must sum to 100")]
+fn test_group_percentages_must_sum_to_100() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let subscriber = Address::generate(&env);
+    let channel_id = Address::generate(&env);
+    let creator_1 = Address::generate(&env);
+    let creator_2 = Address::generate(&env);
+    let creator_3 = Address::generate(&env);
+    let creator_4 = Address::generate(&env);
+    let creator_5 = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    let token = create_token_contract(&env, &admin);
+    let token_admin = token::StellarAssetClient::new(&env, &token.address);
+    token_admin.mint(&subscriber, &1000);
+
+    let contract_id = env.register(SubStreamContract, ());
+    let client = SubStreamContractClient::new(&env, &contract_id);
+
+    let creators = vec![
+        &env,
+        creator_1.clone(),
+        creator_2.clone(),
+        creator_3.clone(),
+        creator_4.clone(),
+        creator_5.clone()
+    ];
+    let percentages = vec![&env, 30u32, 20u32, 20u32, 10u32, 10u32]; // 90
+
+    client.subscribe_group(
+        &subscriber,
+        &channel_id,
+        &token.address,
+        &100,
+        &1,
+        &creators,
+        &percentages,
+    );
 }

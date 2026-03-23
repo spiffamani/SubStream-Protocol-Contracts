@@ -295,10 +295,34 @@
                   },
                   {
                     "key": {
+                      "symbol": "creators"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "last_collected"
                     },
                     "val": {
                       "u64": "120"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "percentages"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "u32": 100
+                        }
+                      ]
                     }
                   },
                   {

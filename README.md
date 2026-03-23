@@ -9,6 +9,8 @@ If the fan dislikes the content, they can cancel instantly and get their remaini
 - **subscribe**: User deposits a buffer (e.g., 50 XLM) and sets a rate.
 - **collect**: Creator triggers the withdrawal of accumulated seconds.
 - **cancel**: Subscriber stops the stream and refunds unspent tokens.
+- **subscribe_group**: User streams to a group channel with exactly 5 creators and percentage splits that sum to 100.
+- **collect_group**: Contract automatically splits each collected amount to all 5 creators based on configured percentages.
 
 ## Network
 - **Stellar Testnet**
@@ -28,4 +30,3 @@ To build the contract for Wasm:
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 ```
-
