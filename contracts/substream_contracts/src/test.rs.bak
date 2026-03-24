@@ -5,9 +5,6 @@ use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     token, vec, Address, Bytes, Env,
 };
-    testutils::{Address as _, Ledger},
-    token, vec, Address, Env,
-};
 
 const DAY: u64 = 24 * 60 * 60;
 const WEEK: u64 = 7 * DAY;

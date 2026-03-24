@@ -2,12 +2,6 @@
 use soroban_sdk::contractevent;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::{contract, contractevent, contractimpl, contracttype, vec, Address, Bytes, Env, Vec};
-use soroban_sdk::{contract, contractimpl, contracttype, vec, Address, Env, Vec};
-
-use soroban_sdk::token::Client as TokenClient;
-use soroban_sdk::{
-    contract, contractevent, contractimpl, contracttype, vec, Address, Env, Vec,
-};
 
 // Minimum flow duration: 24 hours in seconds (24 * 60 * 60 = 86400)
 const MINIMUM_FLOW_DURATION: u64 = 86400;
@@ -16,19 +10,11 @@ const FREE_TRIAL_DURATION: u64 = 7 * 24 * 60 * 60;
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
-    Stream(Address, Address),        // (subscriber, stream_id)
+    Stream(Address, Address),        // (subscriber, creator)
     TotalStreamed(Address, Address), // (subscriber, creator) - cumulative tokens streamed
     CliffThreshold(Address),         // creator -> threshold amount for access
     CreatorSubscribers(Address),     // creator -> Vec<subscriber>
     CreatorMetadata(Address),        // creator -> IPFS CID bytes
-    Stream(Address, Address),        // (subscriber, creator)
-    TotalStreamed(Address, Address), // (subscriber, creator)
-    CliffThreshold(Address),         // creator -> threshold amount for access
-    CreatorSubscribers(Address),     // creator -> Vec<subscriber>
-    Stream(Address, Address),        // (subscriber, stream_id)
-    TotalStreamed(Address, Address), // (subscriber, creator)
-    CliffThreshold(Address),         // creator -> threshold amount
-    CreatorSubscribers(Address),     // creator -> Vec<subscriber>
     ChannelPaused(Address),          // creator -> bool
 }
 
@@ -61,6 +47,17 @@ pub struct TierChanged {
     pub new_rate: i128,
 }
 
+#[contractevent]
+pub struct TipReceived {
+    #[topic]
+    pub user: Address,
+    #[topic]
+    pub creator: Address,
+    #[topic]
+    pub token: Address,
+    pub amount: i128,
+}
+
 #[contract]
 pub struct SubStreamContract;
 
@@ -71,6 +68,20 @@ fn stream_key(subscriber: &Address, stream_id: &Address) -> DataKey {
 fn validate_distribution(creators: &Vec<Address>, percentages: &Vec<u32>, expected: u32) {
     let creators_len = creators.len();
     if creators_len != expected {
+        panic!("creator count mismatch");
+    }
+    
+    let mut total_percentage: u32 = 0;
+    for i in 0..creators_len {
+        let percentage = percentages.get(i as u32).unwrap();
+        total_percentage += percentage;
+    }
+    
+    if total_percentage != 100 {
+        panic!("percentages must sum to 100");
+    }
+}
+
 fn stream_exists(env: &Env, key: &DataKey) -> bool {
     env.storage().persistent().has(key) || env.storage().temporary().has(key)
 }
@@ -111,18 +122,16 @@ fn validate_distribution(
         }
         panic!("invalid creator count");
     }
-    if percentages.len() != creators_len {
+    if percentages.len() != creators.len() {
         panic!("creators and percentages length mismatch");
     }
     let mut total: u32 = 0;
-    for i in 0..creators_len {
     let len = creators.len();
     for i in 0..len {
         let percentage = percentages.get(i).unwrap();
         if percentage == 0 {
             panic!("percentages must be positive");
         }
-        total += percentage;
         total = total.checked_add(percentage).expect("overflow");
 
         let creator_i = creators.get(i).unwrap();
@@ -141,332 +150,6 @@ fn validate_distribution(
 #[contractimpl]
 impl SubStreamContract {
     // Single-creator subscribe for backwards compatibility
-fn is_creator_paused(env: &Env, creator: &Address) -> bool {
-    env.storage()
-        .persistent()
-        .get(&DataKey::ChannelPaused(creator.clone()))
-        .unwrap_or(false)
-}
-
-fn add_subscriber_to_creator(env: &Env, creator: &Address, subscriber: &Address) {
-    let key = DataKey::CreatorSubscribers(creator.clone());
-    let mut subs: Vec<Address> = env.storage().persistent().get(&key).unwrap_or(vec![env]);
-
-    for s in subs.iter() {
-        if s == *subscriber {
-            return;
-        }
-    }
-
-    subs.push_back(subscriber.clone());
-    env.storage().persistent().set(&key, &subs);
-}
-
-fn remove_subscriber_from_creator(env: &Env, creator: &Address, subscriber: &Address) {
-    let key = DataKey::CreatorSubscribers(creator.clone());
-    let subs: Vec<Address> = env.storage().persistent().get(&key).unwrap_or(vec![env]);
-
-    let mut updated = vec![env];
-    for s in subs.iter() {
-        if s != *subscriber {
-            updated.push_back(s);
-        }
-    }
-
-    env.storage().persistent().set(&key, &updated);
-}
-
-fn subscribe_internal(
-    env: &Env,
-    subscriber: &Address,
-    stream_id: &Address,
-    token: &Address,
-    amount: i128,
-    rate_per_second: i128,
-    creators: Vec<Address>,
-    percentages: Vec<u32>,
-) {
-    subscriber.require_auth();
-
-    if amount <= 0 || rate_per_second <= 0 {
-        panic!("amount and rate must be positive");
-    }
-
-    let key = stream_key(subscriber, stream_id);
-    if stream_exists(env, &key) {
-        panic!("stream already exists");
-    }
-
-    let token_client = TokenClient::new(env, token);
-    token_client.transfer(subscriber, &env.current_contract_address(), &amount);
-
-    let now = env.ledger().timestamp();
-    let stream = Stream {
-        token: token.clone(),
-        tier: Tier {
-            rate_per_second,
-            trial_duration: FREE_TRIAL_DURATION,
-        },
-        balance: amount,
-        last_collected: now,
-        start_time: now,
-        creators,
-        percentages,
-    };
-
-    env.storage().persistent().set(&key, &stream);
-
-    // Track subscriber under this stream_id for withdraw_all
-    let creator_key = DataKey::CreatorSubscribers(stream_id.clone());
-    let mut subs: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&creator_key)
-        .unwrap_or(vec![env]);
-    subs.push_back(subscriber.clone());
-    env.storage().persistent().set(&creator_key, &subs);
-}
-
-fn collect_internal(env: &Env, subscriber: &Address, stream_id: &Address) {
-    let key = stream_key(subscriber, stream_id);
-    set_stream(env, &key, &stream);
-}
-
-fn distribute_and_collect(
-    env: &Env,
-    subscriber: &Address,
-    stream_id: &Address,
-    total_streamed_creator: Option<&Address>,
-) -> i128 {
-    let key = stream_key(subscriber, stream_id);
-    let mut stream = get_stream(env, &key);
-    let now = env.ledger().timestamp();
-
-    if now <= stream.last_collected {
-        return 0;
-    }
-
-    if let Some(creator) = total_streamed_creator {
-        if is_creator_paused(env, creator) {
-            // While paused, advance accounting clock so paused time is never billed.
-            stream.last_collected = now;
-            set_stream(env, &key, &stream);
-            return 0;
-        }
-    }
-
-    let trial_end = stream
-        .start_time
-        .saturating_add(stream.tier.trial_duration);
-    let charge_start = if stream.last_collected > trial_end {
-        stream.last_collected
-    } else {
-        trial_end
-    };
-
-    if now <= charge_start {
-        return 0;
-    }
-
-    let elapsed = (now - charge_start) as i128;
-    let mut amount_to_collect = elapsed
-        .checked_mul(stream.tier.rate_per_second)
-    if !env.storage().persistent().has(&key) {
-        panic!("stream not found");
-    }
-
-    let mut stream: Stream = env.storage().persistent().get(&key).unwrap();
-    let now = env.ledger().timestamp();
-
-    if now <= stream.last_collected {
-        return 0;
-    }
-
-    let time_elapsed = (current_time - stream.last_collected) as i128;
-    let mut amount_to_collect = time_elapsed * stream.rate_per_second;
-    if let Some(creator) = total_streamed_creator {
-        if is_creator_paused(env, creator) {
-            // While paused, advance accounting clock so paused time is never billed.
-            stream.last_collected = now;
-            env.storage().persistent().set(&key, &stream);
-            return 0;
-        }
-    }
-
-    let trial_end = stream
-        .start_time
-        .saturating_add(stream.tier.trial_duration);
-    let charge_start = if stream.last_collected > trial_end {
-        stream.last_collected
-    } else {
-        trial_end
-    };
-
-    if now <= charge_start {
-        return 0;
-    }
-
-    let elapsed = (now - charge_start) as i128;
-    let mut amount_to_collect = elapsed
-        .checked_mul(stream.tier.rate_per_second)
-
-    let elapsed = (now - stream.last_collected) as i128;
-    let mut amount_to_collect = elapsed
-        .checked_mul(stream.rate_per_second)
-        .expect("overflow");
-
-    if amount_to_collect > stream.balance {
-        amount_to_collect = stream.balance;
-    }
-
-    if amount_to_collect > 0 {
-        let token_client = TokenClient::new(env, &stream.token);
-        let mut remaining = amount_to_collect;
-        let creators_len = stream.creators.len();
-
-        for i in 0..creators_len {
-            let creator = stream.creators.get(i).unwrap();
-            let payout = if (i + 1) == creators_len {
-                remaining
-            } else {
-                let percentage = stream.percentages.get(i).unwrap() as i128;
-                let amount = (amount_to_collect * percentage) / 100;
-                remaining -= amount;
-                amount
-            };
-
-            if payout > 0 {
-                token_client.transfer(&env.current_contract_address(), &creator, &payout);
-            }
-        }
-
-        stream.balance -= amount_to_collect;
-        stream.last_collected = current_time;
-        env.storage().persistent().set(&key, &stream);
-
-        // Update cumulative streamed for each creator
-        for i in 0..stream.creators.len() {
-            let creator = stream.creators.get(i).unwrap();
-            SubStreamContract::update_total_streamed(env, subscriber, &creator, amount_to_collect);
-    if amount_to_collect <= 0 {
-        return 0;
-    }
-
-    let token_client = TokenClient::new(env, &stream.token);
-    let mut remaining = amount_to_collect;
-    let len = stream.creators.len();
-
-
-    let token_client = TokenClient::new(env, &stream.token);
-    let mut remaining = amount_to_collect;
-    let len = stream.creators.len();
-
-    for i in 0..len {
-        let creator = stream.creators.get(i).unwrap();
-        let payout = if i + 1 == len {
-            remaining
-        } else {
-            let percentage = stream.percentages.get(i).unwrap() as i128;
-            let split = amount_to_collect
-                .checked_mul(percentage)
-                .expect("overflow")
-                .checked_div(100)
-                .expect("div by zero");
-            remaining -= split;
-            split
-        };
-
-        if payout > 0 {
-            token_client.transfer(&env.current_contract_address(), &creator, &payout);
-        }
-    }
-
-    stream.balance -= amount_to_collect;
-    stream.last_collected = now;
-    set_stream(env, &key, &stream);
-    env.storage().persistent().set(&key, &stream);
-
-    if let Some(creator) = total_streamed_creator {
-        let total_key = DataKey::TotalStreamed(subscriber.clone(), creator.clone());
-        let total: i128 = env.storage().persistent().get(&total_key).unwrap_or(0);
-        let new_total = total.checked_add(amount_to_collect).expect("overflow");
-        env.storage().persistent().set(&total_key, &new_total);
-    }
-
-    amount_to_collect
-}
-
-fn cancel_group_internal(env: &Env, subscriber: &Address, stream_id: &Address) {
-    subscriber.require_auth();
-
-    let key = stream_key(subscriber, stream_id);
-    if !stream_exists(env, &key) {
-        panic!("stream not found");
-    }
-
-    // Check minimum flow duration
-    let stream: Stream = env.storage().persistent().get(&key).unwrap();
-    let current_time = env.ledger().timestamp();
-    if current_time < stream.start_time + MINIMUM_FLOW_DURATION {
-        let remaining_time = stream.start_time + MINIMUM_FLOW_DURATION - current_time;
-        panic!(
-            "cannot cancel stream: minimum duration not met. {} seconds remaining",
-            remaining_time
-        );
-    }
-
-    collect_internal(env, subscriber, stream_id);
-    distribute_and_collect(env, subscriber, stream_id, None);
-
-    let stream = get_stream(env, &key);
-    if stream.balance > 0 {
-        let token_client = TokenClient::new(env, &stream.token);
-        token_client.transfer(&env.current_contract_address(), subscriber, &stream.balance);
-    }
-
-    env.storage().persistent().remove(&key);
-
-    // Remove subscriber from stream_id's subscriber list
-    let creator_key = DataKey::CreatorSubscribers(stream_id.clone());
-    if let Some(subs) = env
-        .storage()
-        .persistent()
-        .get::<DataKey, Vec<Address>>(&creator_key)
-    {
-        let mut updated: Vec<Address> = vec![env];
-        for s in subs.iter() {
-            if s != *subscriber {
-                updated.push_back(s);
-            }
-        }
-        env.storage().persistent().set(&creator_key, &updated);
-    }
-    remove_stream(env, &key);
-}
-
-fn top_up_internal(env: &Env, subscriber: &Address, stream_id: &Address, amount: i128) {
-    subscriber.require_auth();
-
-    if amount <= 0 {
-        panic!("amount must be positive");
-    }
-
-    let key = stream_key(subscriber, stream_id);
-    if !stream_exists(env, &key) {
-        panic!("stream not found");
-    }
-
-    let mut stream = get_stream(env, &key);
-    let token_client = TokenClient::new(env, &stream.token);
-    token_client.transfer(subscriber, &env.current_contract_address(), &amount);
-
-    stream.balance = stream.balance.checked_add(amount).expect("overflow");
-    set_stream(env, &key, &stream);
-    env.storage().persistent().set(&key, &stream);
-}
-
-#[contractimpl]
-impl SubStreamContract {
     pub fn subscribe(
         env: Env,
         subscriber: Address,
@@ -475,20 +158,35 @@ impl SubStreamContract {
         amount: i128,
         rate_per_second: i128,
     ) {
-        let creators = vec![&env, creator.clone()];
-        let percentages = vec![&env, 100u32];
-        validate_distribution(&creators, &percentages, 1);
+        subscriber.require_auth();
 
-        subscribe_internal(
-            &env,
-            &subscriber,
-            &creator,
-            &token,
-            amount,
-            rate_per_second,
-            creators,
-            percentages,
-        );
+        if amount <= 0 || rate_per_second <= 0 {
+            panic!("amount and rate must be positive");
+        }
+
+        let key = stream_key(&subscriber, &creator);
+        if stream_exists(&env, &key) {
+            panic!("stream already exists");
+        }
+
+        let token_client = TokenClient::new(&env, &token);
+        token_client.transfer(&subscriber, &env.current_contract_address(), &amount);
+
+        let now = env.ledger().timestamp();
+        let stream = Stream {
+            token: token.clone(),
+            tier: Tier {
+                rate_per_second,
+                trial_duration: FREE_TRIAL_DURATION,
+            },
+            balance: amount,
+            last_collected: now,
+            start_time: now,
+            creators: vec![&env, creator.clone()],
+            percentages: vec![&env, 100],
+        };
+
+        env.storage().persistent().set(&key, &stream);
 
         add_subscriber_to_creator(&env, &creator, &subscriber);
     }
@@ -503,45 +201,6 @@ impl SubStreamContract {
 
     pub fn top_up(env: Env, subscriber: Address, stream_id: Address, amount: i128) {
         top_up_internal(&env, &subscriber, &stream_id, amount);
-    pub fn collect(env: Env, subscriber: Address, creator: Address) {
-        distribute_and_collect(&env, &subscriber, &creator, Some(&creator));
-    }
-
-    pub fn cancel(env: Env, subscriber: Address, creator: Address) {
-        subscriber.require_auth();
-
-        let key = stream_key(&subscriber, &creator);
-        if !stream_exists(&env, &key) {
-            panic!("stream not found");
-        }
-
-        let stream = get_stream(&env, &key);
-        if !env.storage().persistent().has(&key) {
-            panic!("stream not found");
-        }
-
-        let stream: Stream = env.storage().persistent().get(&key).unwrap();
-        let now = env.ledger().timestamp();
-        if now < stream.start_time + MINIMUM_FLOW_DURATION {
-            panic!("cannot cancel stream: minimum duration not met");
-        }
-
-        distribute_and_collect(&env, &subscriber, &creator, Some(&creator));
-
-        let stream_after = get_stream(&env, &key);
-        let stream_after: Stream = env.storage().persistent().get(&key).unwrap();
-        if stream_after.balance > 0 {
-            let token_client = TokenClient::new(&env, &stream_after.token);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &subscriber,
-                &stream_after.balance,
-            );
-        }
-
-        remove_stream(&env, &key);
-        env.storage().persistent().remove(&key);
-        remove_subscriber_from_creator(&env, &creator, &subscriber);
     }
 
     /// View: returns true only if the user has active funds remaining (not expired)
@@ -551,16 +210,30 @@ impl SubStreamContract {
             return false;
         }
         let stream: Stream = env.storage().persistent().get(&key).unwrap();
-        if stream.rate_per_second <= 0 || stream.balance <= 0 {
+        if stream.tier.rate_per_second <= 0 || stream.balance <= 0 {
             return false;
         }
-        let secs = (stream.balance / stream.rate_per_second) as i128;
-        if secs <= 0 {
-            return false;
+
+        let trial_end = stream
+            .start_time
+            .saturating_add(stream.tier.trial_duration);
+        let charge_start = if stream.last_collected > trial_end {
+            stream.last_collected
+        } else {
+            trial_end
+        };
+
+        let now = env.ledger().timestamp();
+        if now <= charge_start {
+            return true;
         }
-        let expiry = stream.start_time.saturating_add(secs as u64);
-        let current = env.ledger().timestamp();
-        current < expiry
+
+        let elapsed = (now - charge_start) as i128;
+        let potential_charge = elapsed
+            .checked_mul(stream.tier.rate_per_second)
+            .unwrap_or(0);
+        
+        stream.balance > potential_charge
     }
 
     // Minimal group wrappers
@@ -614,11 +287,6 @@ impl SubStreamContract {
         for subscriber in subs.iter() {
             let s_key = stream_key(&subscriber, &creator);
             if stream_exists(&env, &s_key) {
-            if env
-                .storage()
-                .persistent()
-                .has(&stream_key(&subscriber, &creator))
-            {
                 distribute_and_collect(&env, &subscriber, &creator, Some(&creator));
             }
         }
@@ -646,10 +314,6 @@ impl SubStreamContract {
                 let mut stream = get_stream(&env, &s_key);
                 stream.last_collected = now;
                 set_stream(&env, &s_key, &stream);
-            if env.storage().persistent().has(&s_key) {
-                let mut stream: Stream = env.storage().persistent().get(&s_key).unwrap();
-                stream.last_collected = now;
-                env.storage().persistent().set(&s_key, &stream);
             }
         }
 
@@ -667,89 +331,41 @@ impl SubStreamContract {
         subscriber: Address,
         creator: Address,
         new_rate_per_second: i128,
-        additional_deposit: i128,
     ) {
         subscriber.require_auth();
-
-        if new_rate_per_second <= 0 {
-            panic!("new rate must be positive");
-        }
-        if additional_deposit < 0 {
-            panic!("additional deposit must be non-negative");
-        }
 
         let key = stream_key(&subscriber, &creator);
         if !stream_exists(&env, &key) {
             panic!("stream not found");
         }
 
-        let stream_before = get_stream(&env, &key);
-        if !env.storage().persistent().has(&key) {
-            panic!("stream not found");
-        }
-
-        let stream_before: Stream = env.storage().persistent().get(&key).unwrap();
-        let old_rate = stream_before.tier.rate_per_second;
-
-        distribute_and_collect(&env, &subscriber, &creator, Some(&creator));
-
         let mut stream = get_stream(&env, &key);
-        let mut balance = stream.balance;
-
-        if new_rate_per_second < old_rate && balance > 0 {
-            let tokens_to_keep = balance
-                .checked_mul(new_rate_per_second)
-                .expect("overflow")
-                .checked_div(old_rate)
-                .expect("old rate must be positive");
-            let refund = balance.saturating_sub(tokens_to_keep);
-            if refund > 0 {
-                let token_client = TokenClient::new(&env, &stream.token);
-                token_client.transfer(&env.current_contract_address(), &subscriber, &refund);
-                balance = tokens_to_keep;
-            }
+        let old_rate = stream.tier.rate_per_second;
+        
+        if old_rate == new_rate_per_second {
+            return;
         }
+
+        // Collect any pending earnings before changing rate
+        distribute_and_collect(&env, &subscriber, &creator, Some(&creator));
+        stream = get_stream(&env, &key);
 
         stream.tier.rate_per_second = new_rate_per_second;
-        stream.balance = balance;
-
-        if additional_deposit > 0 {
-            let token_client = TokenClient::new(&env, &stream.token);
-            token_client.transfer(
-                &subscriber,
-                &env.current_contract_address(),
-                &additional_deposit,
-            );
-            stream.balance = stream
-                .balance
-                .checked_add(additional_deposit)
-                .expect("overflow");
-        }
-
         set_stream(&env, &key, &stream);
 
-        if old_rate != new_rate_per_second {
+        env.events().publish(
             TierChanged {
                 subscriber: subscriber.clone(),
                 creator: creator.clone(),
                 old_rate,
                 new_rate: new_rate_per_second,
             }
-            .publish(&env);
-        }
+        );
     }
 
     /// Collect from all active streams for a creator in a single call.
     /// `max_count` caps the batch size to avoid hitting ledger instruction limits.
     /// Returns the total amount collected across all processed streams.
-    pub fn withdraw_all(env: Env, creator: Address, max_count: u32) -> i128 {
-        let creator_key = DataKey::CreatorSubscribers(creator.clone());
-        let subs: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&creator_key)
-            .unwrap_or(vec![&env]);
-    /// Collect from a creator's active streams in a batch.
     pub fn withdraw_all(env: Env, creator: Address, max_count: u32) -> i128 {
         let subs_key = DataKey::CreatorSubscribers(creator.clone());
         let subs: Vec<Address> = env.storage().persistent().get(&subs_key).unwrap_or(vec![&env]);
@@ -761,34 +377,10 @@ impl SubStreamContract {
             let subscriber = subs.get(i).unwrap();
             let s_key = stream_key(&subscriber, &creator);
             if stream_exists(&env, &s_key) {
-            if env
-                .storage()
-                .persistent()
-                .has(&stream_key(&subscriber, &creator))
-            {
                 total += distribute_and_collect(&env, &subscriber, &creator, Some(&creator));
             }
         }
 
-        // Single transfer of the total collected amount to the creator
-        if total_collected > 0 {
-            for i in 0..limit {
-                let subscriber = subs.get(i as u32).unwrap();
-                let stream_key = DataKey::Stream(subscriber.clone(), creator.clone());
-                if env.storage().persistent().has(&stream_key) {
-                    let stream: Stream = env.storage().persistent().get(&stream_key).unwrap();
-                    let token_client = TokenClient::new(&env, &stream.token);
-                    token_client.transfer(
-                        &env.current_contract_address(),
-                        &creator,
-                        &total_collected,
-                    );
-                    break;
-                }
-            }
-        }
-
-        total_collected
         total
     }
 
@@ -860,11 +452,6 @@ impl SubStreamContract {
         }
         let streamed_key = DataKey::TotalStreamed(subscriber.clone(), creator.clone());
         let total_streamed: i128 = env.storage().persistent().get(&streamed_key).unwrap_or(0);
-        let total_streamed: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::TotalStreamed(subscriber, creator))
-            .unwrap_or(0);
 
         if total_streamed >= 500 {
             3
@@ -876,6 +463,75 @@ impl SubStreamContract {
             0
         }
     }
+
+    /// Direct tip from user to creator without subscription
+    /// Transfers tokens directly from user to creator and emits TipReceived event
+    pub fn tip(env: Env, user: Address, creator: Address, token: Address, amount: i128) {
+        user.require_auth();
+        
+        if amount <= 0 {
+            panic!("amount must be positive");
+        }
+        
+        if user == creator {
+            panic!("cannot tip yourself");
+        }
+        
+        // Direct transfer from user to creator
+        let token_client = TokenClient::new(&env, &token);
+        token_client.transfer(&user, &creator, &amount);
+        
+        // Emit TipReceived event
+        env.events().publish(
+            (user.clone(), creator.clone(), token.clone()),
+            amount,
+        );
+    }
+
+    // Update total streamed amount for a subscriber-creator pair
+    fn update_total_streamed(env: &Env, subscriber: &Address, creator: &Address, amount: i128) {
+        let key = DataKey::TotalStreamed(subscriber.clone(), creator.clone());
+        let current_total: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&key, &(current_total + amount));
+    }
+}
+
+// Helper functions
+fn is_creator_paused(env: &Env, creator: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::ChannelPaused(creator.clone()))
+        .unwrap_or(false)
+}
+
+fn add_subscriber_to_creator(env: &Env, creator: &Address, subscriber: &Address) {
+    let key = DataKey::CreatorSubscribers(creator.clone());
+    let mut subs: Vec<Address> = env.storage().persistent().get(&key).unwrap_or(vec![env]);
+
+    for s in subs.iter() {
+        if s == *subscriber {
+            return;
+        }
+    }
+
+    subs.push_back(subscriber.clone());
+    env.storage().persistent().set(&key, &subs);
+}
+
+fn remove_subscriber_from_creator(env: &Env, creator: &Address, subscriber: &Address) {
+    let key = DataKey::CreatorSubscribers(creator.clone());
+    let subs: Vec<Address> = env.storage().persistent().get(&key).unwrap_or(vec![env]);
+
+    let mut updated = vec![env];
+    for s in subs.iter() {
+        if s != *subscriber {
+            updated.push_back(s);
+        }
+    }
+
+    env.storage().persistent().set(&key, &updated);
 }
 
 // Internal implementations
@@ -902,7 +558,10 @@ fn subscribe_internal(
     let now = env.ledger().timestamp();
     let stream = Stream {
         token: token.clone(),
-        rate_per_second,
+        tier: Tier {
+            rate_per_second,
+            trial_duration: FREE_TRIAL_DURATION,
+        },
         balance: amount,
         last_collected: now,
         start_time: now,
@@ -923,6 +582,88 @@ fn subscribe_internal(
     }
 }
 
+fn distribute_and_collect(
+    env: &Env,
+    subscriber: &Address,
+    stream_id: &Address,
+    total_streamed_creator: Option<&Address>,
+) -> i128 {
+    let key = stream_key(subscriber, stream_id);
+    let mut stream = get_stream(env, &key);
+    let now = env.ledger().timestamp();
+
+    if now <= stream.last_collected {
+        return 0;
+    }
+
+    if let Some(creator) = total_streamed_creator {
+        if is_creator_paused(env, creator) {
+            // While paused, advance accounting clock so paused time is never billed.
+            stream.last_collected = now;
+            set_stream(env, &key, &stream);
+            return 0;
+        }
+    }
+
+    let trial_end = stream
+        .start_time
+        .saturating_add(stream.tier.trial_duration);
+    let charge_start = if stream.last_collected > trial_end {
+        stream.last_collected
+    } else {
+        trial_end
+    };
+
+    if now <= charge_start {
+        return 0;
+    }
+
+    let elapsed = (now - charge_start) as i128;
+    let mut amount_to_collect = elapsed
+        .checked_mul(stream.tier.rate_per_second)
+        .unwrap_or(0);
+
+    if amount_to_collect > stream.balance {
+        amount_to_collect = stream.balance;
+    }
+
+    if amount_to_collect <= 0 {
+        return 0;
+    }
+
+    let token_client = TokenClient::new(env, &stream.token);
+    let mut remaining = amount_to_collect;
+    let creators_len = stream.creators.len();
+
+    for i in 0..creators_len {
+        let creator = stream.creators.get(i).unwrap();
+        let payout = if (i + 1) == creators_len {
+            remaining
+        } else {
+            let percentage = stream.percentages.get(i).unwrap() as i128;
+            let amount = (amount_to_collect * percentage) / 100;
+            remaining -= amount;
+            amount
+        };
+
+        if payout > 0 {
+            token_client.transfer(&env.current_contract_address(), &creator, &payout);
+        }
+    }
+
+    stream.balance -= amount_to_collect;
+    stream.last_collected = now;
+    set_stream(env, &key, &stream);
+
+    // Update cumulative streamed for each creator
+    for i in 0..stream.creators.len() {
+        let creator = stream.creators.get(i).unwrap();
+        SubStreamContract::update_total_streamed(env, subscriber, &creator, amount_to_collect);
+    }
+
+    amount_to_collect
+}
+
 fn collect_internal(env: &Env, subscriber: &Address, stream_id: &Address) {
     let key = stream_key(subscriber, stream_id);
     if !env.storage().persistent().has(&key) {
@@ -935,7 +676,7 @@ fn collect_internal(env: &Env, subscriber: &Address, stream_id: &Address) {
     }
     let time_elapsed = (current_time - stream.last_collected) as i128;
     let mut amount_to_collect = time_elapsed
-        .checked_mul(stream.rate_per_second)
+        .checked_mul(stream.tier.rate_per_second)
         .unwrap_or(0);
     if amount_to_collect > stream.balance {
         amount_to_collect = stream.balance;
@@ -983,12 +724,14 @@ fn cancel_internal(env: &Env, subscriber: &Address, stream_id: &Address) {
     env.storage().persistent().remove(&key);
 }
 
-    fn update_total_streamed(env: &Env, subscriber: &Address, creator: &Address, amount: i128) {
-        let key = DataKey::TotalStreamed(subscriber.clone(), creator.clone());
-        let current_total: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&key, &(current_total + amount));
+fn update_total_streamed(env: &Env, subscriber: &Address, creator: &Address, amount: i128) {
+    let key = DataKey::TotalStreamed(subscriber.clone(), creator.clone());
+    let current_total: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&key, &(current_total + amount));
+}
+
 fn top_up_internal(env: &Env, subscriber: &Address, stream_id: &Address, amount: i128) {
     subscriber.require_auth();
     if amount <= 0 {
@@ -1003,6 +746,54 @@ fn top_up_internal(env: &Env, subscriber: &Address, stream_id: &Address, amount:
     token_client.transfer(subscriber, &env.current_contract_address(), &amount);
     stream.balance += amount;
     env.storage().persistent().set(&key, &stream);
+}
+
+fn cancel_group_internal(env: &Env, subscriber: &Address, stream_id: &Address) {
+    subscriber.require_auth();
+
+    let key = stream_key(subscriber, stream_id);
+    if !stream_exists(env, &key) {
+        panic!("stream not found");
+    }
+
+    // Check minimum flow duration
+    let stream: Stream = env.storage().persistent().get(&key).unwrap();
+    let current_time = env.ledger().timestamp();
+    if current_time < stream.start_time + MINIMUM_FLOW_DURATION {
+        let remaining_time = stream.start_time + MINIMUM_FLOW_DURATION - current_time;
+        panic!(
+            "cannot cancel stream: minimum duration not met. {} seconds remaining",
+            remaining_time
+        );
+    }
+
+    collect_internal(env, subscriber, stream_id);
+    distribute_and_collect(env, subscriber, stream_id, None);
+
+    let stream = get_stream(env, &key);
+    if stream.balance > 0 {
+        let token_client = TokenClient::new(env, &stream.token);
+        token_client.transfer(&env.current_contract_address(), subscriber, &stream.balance);
+    }
+
+    remove_stream(env, &key);
+
+    // Remove subscriber from stream_id's subscriber list
+    let creator_key = DataKey::CreatorSubscribers(stream_id.clone());
+    if let Some(subs) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, Vec<Address>>(&creator_key)
+    {
+        let mut updated: Vec<Address> = vec![env];
+        for s in subs.iter() {
+            if s != *subscriber {
+                updated.push_back(s);
+            }
+        }
+        env.storage().persistent().set(&creator_key, &updated);
+    }
+    remove_stream(env, &key);
 }
 
 mod test;
