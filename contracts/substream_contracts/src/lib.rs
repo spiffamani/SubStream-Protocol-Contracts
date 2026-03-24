@@ -1,6 +1,9 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{ contract, contractimpl, contracttype, Address, Env };
 use soroban_sdk::token::Client as TokenClient;
+
+// Minimum flow duration: 24 hours in seconds (24 * 60 * 60 = 86400)
+const MINIMUM_FLOW_DURATION: u64 = 86400;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15,6 +18,7 @@ pub struct Stream {
     pub rate_per_second: i128,
     pub balance: i128,
     pub last_collected: u64,
+    pub start_time: u64,
 }
 
 #[contract]
@@ -28,10 +32,10 @@ impl SubStreamContract {
         creator: Address,
         token: Address,
         amount: i128,
-        rate_per_second: i128,
+        rate_per_second: i128
     ) {
         subscriber.require_auth();
-        
+
         if amount <= 0 || rate_per_second <= 0 {
             panic!("amount and rate must be positive");
         }
@@ -44,11 +48,13 @@ impl SubStreamContract {
         let token_client = TokenClient::new(&env, &token);
         token_client.transfer(&subscriber, &env.current_contract_address(), &amount);
 
+        let current_time = env.ledger().timestamp();
         let stream = Stream {
             token,
             rate_per_second,
             balance: amount,
-            last_collected: env.ledger().timestamp(),
+            last_collected: current_time,
+            start_time: current_time,
         };
 
         env.storage().persistent().set(&key, &stream);
@@ -62,7 +68,7 @@ impl SubStreamContract {
 
         let mut stream: Stream = env.storage().persistent().get(&key).unwrap();
         let current_time = env.ledger().timestamp();
-        
+
         if current_time <= stream.last_collected {
             return;
         }
@@ -77,10 +83,10 @@ impl SubStreamContract {
         if amount_to_collect > 0 {
             let token_client = TokenClient::new(&env, &stream.token);
             token_client.transfer(&env.current_contract_address(), &creator, &amount_to_collect);
-            
+
             stream.balance -= amount_to_collect;
             stream.last_collected = current_time;
-            
+
             env.storage().persistent().set(&key, &stream);
         }
     }
@@ -93,12 +99,22 @@ impl SubStreamContract {
             panic!("stream not found");
         }
 
+        // Get stream to check minimum duration
+        let stream: Stream = env.storage().persistent().get(&key).unwrap();
+        let current_time = env.ledger().timestamp();
+
+        // Check if minimum flow duration has been met
+        if current_time < stream.start_time + MINIMUM_FLOW_DURATION {
+            let remaining_time = stream.start_time + MINIMUM_FLOW_DURATION - current_time;
+            panic!("cannot cancel stream: minimum duration not met. {} seconds remaining", remaining_time);
+        }
+
         // First collect any pending amount
         Self::collect(env.clone(), subscriber.clone(), creator.clone());
 
         // Get updated stream
         let stream: Stream = env.storage().persistent().get(&key).unwrap();
-        
+
         // Refund remaining balance to subscriber
         if stream.balance > 0 {
             let token_client = TokenClient::new(&env, &stream.token);
