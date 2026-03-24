@@ -9,6 +9,7 @@ If the fan dislikes the content, they can cancel instantly and get their remaini
 ## Key Logic
 
 - **subscribe**: User deposits a buffer (e.g., 50 XLM) and sets a rate.
+- **7-day free trial**: Streams accrue zero charges for the first 7 days, then automatically charge at the configured paid rate.
 - **collect**: Creator triggers the withdrawal of accumulated seconds.
 - **cancel**: Subscriber stops the stream and refunds unspent tokens (after minimum duration).
 - **pause_channel / unpause_channel**: Creator can pause their channel to stop charges across all active incoming streams during hiatus.

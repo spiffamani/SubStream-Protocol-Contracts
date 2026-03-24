@@ -107,12 +107,14 @@
     [],
     [],
     [],
+    [],
+    [],
     []
   ],
   "ledger": {
     "protocol_version": 25,
     "sequence_number": 0,
-    "timestamp": 160,
+    "timestamp": 604960,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -279,7 +281,7 @@
                       "symbol": "last_collected"
                     },
                     "val": {
-                      "u64": "160"
+                      "u64": "604960"
                     }
                   },
                   {
@@ -296,18 +298,35 @@
                   },
                   {
                     "key": {
-                      "symbol": "rate_per_second"
-                    },
-                    "val": {
-                      "i128": "2"
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "start_time"
                     },
                     "val": {
                       "u64": "100"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "tier"
+                    },
+                    "val": {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "rate_per_second"
+                          },
+                          "val": {
+                            "i128": "2"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "trial_duration"
+                          },
+                          "val": {
+                            "u64": "604800"
+                          }
+                        }
+                      ]
                     }
                   },
                   {

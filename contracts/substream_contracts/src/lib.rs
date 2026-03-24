@@ -7,6 +7,7 @@ use soroban_sdk::{
 
 // Minimum flow duration: 24 hours in seconds (24 * 60 * 60 = 86400)
 const MINIMUM_FLOW_DURATION: u64 = 86400;
+const FREE_TRIAL_DURATION: u64 = 7 * 24 * 60 * 60;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,9 +21,16 @@ pub enum DataKey {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Tier {
+    pub rate_per_second: i128,
+    pub trial_duration: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Stream {
     pub token: Address,
-    pub rate_per_second: i128,
+    pub tier: Tier,
     pub balance: i128,
     pub last_collected: u64,
     pub start_time: u64,
@@ -147,7 +155,10 @@ fn subscribe_internal(
     let now = env.ledger().timestamp();
     let stream = Stream {
         token: token.clone(),
-        rate_per_second,
+        tier: Tier {
+            rate_per_second,
+            trial_duration: FREE_TRIAL_DURATION,
+        },
         balance: amount,
         last_collected: now,
         start_time: now,
@@ -184,6 +195,23 @@ fn distribute_and_collect(
             return 0;
         }
     }
+
+    let trial_end = stream
+        .start_time
+        .saturating_add(stream.tier.trial_duration);
+    let charge_start = if stream.last_collected > trial_end {
+        stream.last_collected
+    } else {
+        trial_end
+    };
+
+    if now <= charge_start {
+        return 0;
+    }
+
+    let elapsed = (now - charge_start) as i128;
+    let mut amount_to_collect = elapsed
+        .checked_mul(stream.tier.rate_per_second)
 
     let elapsed = (now - stream.last_collected) as i128;
     let mut amount_to_collect = elapsed
@@ -455,7 +483,7 @@ impl SubStreamContract {
         }
 
         let stream_before: Stream = env.storage().persistent().get(&key).unwrap();
-        let old_rate = stream_before.rate_per_second;
+        let old_rate = stream_before.tier.rate_per_second;
 
         distribute_and_collect(&env, &subscriber, &creator, Some(&creator));
 
@@ -476,7 +504,7 @@ impl SubStreamContract {
             }
         }
 
-        stream.rate_per_second = new_rate_per_second;
+        stream.tier.rate_per_second = new_rate_per_second;
         stream.balance = balance;
 
         if additional_deposit > 0 {
