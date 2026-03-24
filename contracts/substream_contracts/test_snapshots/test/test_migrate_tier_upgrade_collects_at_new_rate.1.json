@@ -99,7 +99,6 @@
         }
       ]
     ],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -107,7 +106,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
-              "function_name": "top_up",
+              "function_name": "migrate_tier",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
@@ -116,36 +115,19 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "i128": "50"
+                  "i128": "2"
+                },
+                {
+                  "i128": "0"
                 }
               ]
             }
           },
-          "sub_invocations": [
-            {
-              "function": {
-                "contract_fn": {
-                  "contract_address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN",
-                  "function_name": "transfer",
-                  "args": [
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                    },
-                    {
-                      "i128": "50"
-                    }
-                  ]
-                }
-              },
-              "sub_invocations": []
-            }
-          ]
+          "sub_invocations": []
         }
       ]
     ],
+    [],
     [],
     [],
     [],
@@ -290,19 +272,7 @@
                       "symbol": "balance"
                     },
                     "val": {
-                      "i128": "30"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "creators"
-                    },
-                    "val": {
-                      "vec": [
-                        {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                        }
-                      ]
+                      "i128": "70"
                     }
                   },
                   {
@@ -315,30 +285,10 @@
                   },
                   {
                     "key": {
-                      "symbol": "percentages"
-                    },
-                    "val": {
-                      "vec": [
-                        {
-                          "u32": 100
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "rate_per_second"
                     },
                     "val": {
-                      "i128": "1"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "start_time"
-                    },
-                    "val": {
-                      "u64": "0"
+                      "i128": "2"
                     }
                   },
                   {
@@ -405,7 +355,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "850"
+                      "i128": "900"
                     }
                   },
                   {
@@ -457,7 +407,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "120"
+                      "i128": "30"
                     }
                   },
                   {
@@ -509,7 +459,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "30"
+                      "i128": "70"
                     }
                   },
                   {
