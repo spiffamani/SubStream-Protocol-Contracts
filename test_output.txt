@@ -19,30 +19,143 @@ emoteException
     + FullyQualifiedErrorI 
    d : NativeCommandError
  
-error: unexpected closing 
-delimiter: `}`
+warning: use of deprecated 
+method `soroban_sdk::events
+::Events::publish`: use 
+the #[contractevent] macro 
+on a contract event type
    --> contracts\substream_
-contracts\src\lib.rs:415:1
+contracts\src\lib.rs:389:22
     |
-386 |     pub fn calculate_
-total_earned(env: Env, 
-creator: Address) -> i128 {
+389 |         
+env.events().publish(
     |                      
-                           
-                      - 
-this delimiter might not 
-be properly closed...
-...
-411 |         }
-    |         - ...as it 
-matches this but it has 
-different indentation
-...
-415 | }
-    | ^ unexpected closing 
-delimiter
+^^^^^^^
+    |
+    = note: 
+`#[warn(deprecated)]` on 
+by default
 
-error: could not compile 
+warning: use of deprecated 
+method `soroban_sdk::events
+::Events::publish`: use 
+the #[contractevent] macro 
+on a contract event type
+   --> contracts\substream_
+contracts\src\lib.rs:562:22
+    |
+562 |         
+env.events().publish(
+    |                      
+^^^^^^^
+
+warning: 
 `substream_contracts` (lib 
-test) due to 1 previous 
-error
+test) generated 2 warnings
+    Finished `test` 
+profile [unoptimized + 
+debuginfo] target(s) in 
+9.03s
+     Running unittests 
+src\lib.rs (target\debug\de
+ps\substream_contracts-d7f1
+e98d18dbae52.exe)
+
+running 35 tests
+test test::test_calculate_total_earned_caps_at_stream_balance ... ok
+test test::test_calculate_total_earned_no_mutation_verify_via_balance ... ok
+test test::test_calculate_total_earned_returns_zero_when_no_subscribers ... ok
+test test::test_calculate_total_earned_group_channel_creator_share ... FAILED
+test test::test_calculate_total_earned_paused_channel_returns_zero ... ok
+test test::test_access_tiers_progression ... FAILED
+test test::test_calculate_total_earned_single_stream_basic ... ok
+test test::test_calculate_total_earned_reflects_already_collected_portion ... ok
+test test::test_calculate_total_earned_zero_during_trial ... ok
+test test::test_calculate_total_earned_mixed_single_and_group_streams ... FAILED
+test test::test_cancel_exactly_at_minimum_duration ... ok
+test test::test_calculate_total_earned_multiple_subscribers ... ok
+test test::test_cliff_based_access_before_threshold ... ok
+test test::test_creator_metadata ... ok
+test test::test_cancel_after_minimum_duration ... ok
+test test::test_group_requires_exactly_five_creators - should panic ... ok
+test test::test_cancel_before_minimum_duration - should panic ... FAILED
+test test::test_free_trial_ignores_claims_within_first_week ... ok
+test test::test_cliff_threshold_access ... FAILED
+test test::test_is_subscribed_none ... ok
+test test::test_group_cancel_collects_and_refunds_remaining_balance ... ok
+test test::test_group_percentages_must_sum_to_100 - should panic ... ok
+test test::test_creator_coop_split_dynamic ... ok
+test test::test_is_subscribed_expired ... ok
+test test::test_is_subscribed_active ... ok
+test test::test_group_subscribe_and_collect_split ... ok
+test test::test_inactive_stream_moves_to_temporary_storage ... ok
+test test::test_migrate_tier_collects_at_old_rate_before_switching ... ok
+test test::test_migrate_tier_emits_event ... ok
+test test::test_migrate_tier_with_top_up_is_atomic ... ok
+test test::test_top_up ... ok
+test test::test_pause_channel_blocks_charges_and_unpause_resumes ... ok
+test test::test_pause_channel_applies_to_all_subscribers ... ok
+test test::test_migrate_tier_new_rate_applies_after_switch ... ok
+test test::test_top_up_reactivates_stream_to_persistent_storage ... ok
+
+failures:
+
+---- test::test_calculate_total_earned_group_channel_creator_share stdout ----
+
+thread 'test::test_calculate_total_earned_group_channel_creator_share' (1412) panicked at contracts\substream_contracts\src\test.rs:1156:5:
+assertion `left == right` failed
+  left: 0
+ right: 400
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Writing test snapshot file for test "test::test_calculate_total_earned_group_channel_creator_share" to "test_snapshots\\test\\test_calculate_total_earned_group_channel_creator_share.1.json".
+
+---- test::test_access_tiers_progression stdout ----
+
+thread 'test::test_access_tiers_progression' (12944) panicked at contracts\substream_contracts\src\test.rs:890:5:
+assertion `left == right` failed
+  left: 2
+ right: 1
+Writing test snapshot file for test "test::test_access_tiers_progression" to "test_snapshots\\test\\test_access_tiers_progression.1.json".
+
+---- test::test_calculate_total_earned_mixed_single_and_group_streams stdout ----
+
+thread 'test::test_calculate_total_earned_mixed_single_and_group_streams' (15236) panicked at contracts\substream_contracts\src\test.rs:1271:5:
+assertion `left == right` failed
+  left: 600
+ right: 1600
+Writing test snapshot file for test "test::test_calculate_total_earned_mixed_single_and_group_streams" to "test_snapshots\\test\\test_calculate_total_earned_mixed_single_and_group_streams.1.json".
+
+---- test::test_cancel_before_minimum_duration stdout ----
+
+thread 'test::test_cancel_before_minimum_duration' (14068) panicked at C:\Users\USER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroban-env-host-25.0.1\src\host.rs:907:9:
+HostError: Error(WasmVm, InvalidAction)
+
+Event log (newest first):
+   0: [Diagnostic Event] topics:[error, Error(WasmVm, InvalidAction)], data:"escalating error to panic"
+   1: [Diagnostic Event] topics:[error, Error(WasmVm, InvalidAction)], data:["contract call failed", cancel, [CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4]]
+   2: [Failed Diagnostic Event (not emitted)] contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM, topics:[error, Error(WasmVm, InvalidAction)], data:"caught error from function"
+   3: [Failed Diagnostic Event (not emitted)] contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM, topics:[log], data:["caught panic 'cannot cancel: minimum duration not met. 82800 seconds remaining' from contract function 'Symbol(cancel)'", CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4]
+   4: [Diagnostic Event] topics:[fn_call, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM, cancel], data:[CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4]
+
+Writing test snapshot file for test "test::test_cancel_before_minimum_duration" to "test_snapshots\\test\\test_cancel_before_minimum_duration.1.json".
+note: panic did not contain expected string
+      panic message: "HostError: Error(WasmVm, InvalidAction)\n\nEvent log (newest first):\n   0: [Diagnostic Event] topics:[error, Error(WasmVm, InvalidAction)], data:\"escalating error to panic\"\n   1: [Diagnostic Event] topics:[error, Error(WasmVm, InvalidAction)], data:[\"contract call failed\", cancel, [CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4]]\n   2: [Failed Diagnostic Event (not emitted)] contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM, topics:[error, Error(WasmVm, InvalidAction)], data:\"caught error from function\"\n   3: [Failed Diagnostic Event (not emitted)] contract:CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM, topics:[log], data:[\"caught panic 'cannot cancel: minimum duration not met. 82800 seconds remaining' from contract function 'Symbol(cancel)'\", CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4]\n   4: [Diagnostic Event] topics:[fn_call, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM, cancel], data:[CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM, CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4]\n"
+ expected substring: "cannot cancel stream: minimum duration not met"
+---- test::test_cliff_threshold_access stdout ----
+
+thread 'test::test_cliff_threshold_access' (10872) panicked at contracts\substream_contracts\src\test.rs:856:5:
+assertion failed: !client.has_unlocked_access(&subscriber, &creator)
+Writing test snapshot file for test "test::test_cliff_threshold_access" to "test_snapshots\\test\\test_cliff_threshold_access.1.json".
+
+
+failures:
+    test::test_access_tiers_progression
+    test::test_calculate_total_earned_group_channel_creator_share
+    test::test_calculate_total_earned_mixed_single_and_group_streams
+    test::test_cancel_before_minimum_duration
+    test::test_cliff_threshold_access
+
+test result: FAILED. 30 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+
+error: test failed, to 
+rerun pass `--lib`

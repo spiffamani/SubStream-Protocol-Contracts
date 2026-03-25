@@ -17,6 +17,7 @@ pub enum DataKey {
     CreatorMetadata(Address),        // creator -> IPFS CID bytes
     ChannelPaused(Address),          // creator -> bool
     GiftsReceived(Address),          // beneficiary -> Vec<stream_id>
+    CreatorSplit(Address),           // creator -> Vec<(Address, u32)>
 }
 
 #[contracttype]
@@ -81,6 +82,13 @@ pub struct TipReceived {
 
 #[contract]
 pub struct SubStreamContract;
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SplitPartition {
+    pub partner: Address,
+    pub percentage: u32,
+}
 
 fn subscription_key(subscriber: &Address, stream_id: &Address) -> DataKey {
     DataKey::Subscription(subscriber.clone(), stream_id.clone())
@@ -163,7 +171,7 @@ fn get_subscription(env: &Env, key: &DataKey) -> Subscription {
     } else if env.storage().temporary().has(key) {
         env.storage().temporary().get(key).unwrap()
     } else {
-        panic!("Subscription not found")
+        panic!("subscription not found")
     }
 }
 
@@ -180,16 +188,6 @@ fn set_subscription(env: &Env, key: &DataKey, sub: &Subscription) {
 fn remove_subscription(env: &Env, key: &DataKey) {
     env.storage().persistent().remove(key);
     env.storage().temporary().remove(key);
-}
-
-fn get_subscription(env: &Env, key: &DataKey) -> Subscription {
-    if env.storage().persistent().has(key) {
-        env.storage().persistent().get(key).unwrap()
-    } else if env.storage().temporary().has(key) {
-        env.storage().temporary().get(key).unwrap()
-    } else {
-        panic!("subscription not found")
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +289,8 @@ impl SubStreamContract {
         if !env.storage().persistent().has(&key) {
             return false;
         }
+        let sub: Subscription = env.storage().persistent().get(&key).unwrap();
+        if sub.tier.rate_per_second <= 0 || sub.balance <= 0 {
         let stream: Subscription = env.storage().persistent().get(&key).unwrap();
         if stream.tier.rate_per_second <= 0 || stream.balance <= 0 {
         let stream: Stream = env.storage().persistent().get(&key).unwrap();
@@ -298,11 +298,11 @@ impl SubStreamContract {
             return false;
         }
 
-        let trial_end = stream
+        let trial_end = sub
             .start_time
-            .saturating_add(stream.tier.trial_duration);
-        let charge_start = if stream.last_collected > trial_end {
-            stream.last_collected
+            .saturating_add(sub.tier.trial_duration);
+        let charge_start = if sub.last_collected > trial_end {
+            sub.last_collected
         } else {
             trial_end
         };
@@ -314,9 +314,10 @@ impl SubStreamContract {
 
         let elapsed = (now - charge_start) as i128;
         let potential_charge = elapsed
-            .checked_mul(stream.tier.rate_per_second)
+            .checked_mul(sub.tier.rate_per_second)
             .unwrap_or(0);
         
+        sub.balance > potential_charge
         if stream.balance > potential_charge {
             return true;
         }
@@ -426,18 +427,39 @@ impl SubStreamContract {
         let now = env.ledger().timestamp();
 
         // Resume billing from now so paused window is never charged.
-        for subscriber in subs.iter() {
-            let s_key = subscription_key(&subscriber, &creator);
+        for beneficiary in subs.iter() {
+            let s_key = subscription_key(&beneficiary, &creator);
             if subscription_exists(&env, &s_key) {
-                let mut Subscription = get_subscription(&env, &s_key);
-                stream.last_collected = now;
-                set_subscription(&env, &s_key, &stream);
+                let mut sub = get_subscription(&env, &s_key);
+                sub.last_collected = now;
+                set_subscription(&env, &s_key, &sub);
             }
         }
 
         env.storage()
             .persistent()
             .set(&DataKey::ChannelPaused(creator), &false);
+    }
+
+    /// Update revenue sharing for a creator. Only affects NEWly collected tokens.
+    /// Supports up to 5 partners. Total percentages must equal 100.
+    pub fn set_creator_split(env: Env, creator: Address, partitions: Vec<SplitPartition>) {
+        creator.require_auth();
+        
+        if partitions.len() > 5 {
+            panic!("max 5 split partners");
+        }
+        
+        let mut total: u32 = 0;
+        for p in partitions.iter() {
+            total += p.percentage;
+        }
+        
+        if total != 100 {
+            panic!("percentages must sum to 100");
+        }
+        
+        env.storage().persistent().set(&DataKey::CreatorSplit(creator), &partitions);
     }
 
     pub fn is_channel_paused(env: Env, creator: Address) -> bool {
@@ -461,32 +483,32 @@ impl SubStreamContract {
             panic!("Subscription not found");
         }
 
-        let mut Subscription = get_subscription(&env, &key);
-        let old_rate = stream.tier.rate_per_second;
+        let mut sub = get_subscription(&env, &key);
+        let old_rate = sub.tier.rate_per_second;
 
         // 1. Pro-rate earnings at the OLD rate up to EXACTLY NOW
         // This moves accrued funds to creator(s) and ensures accurate billing.
-        let creator_to_update = if stream.creators.len() == 1 {
-            Some(stream.creators.get(0).unwrap())
+        let creator_to_update = if sub.creators.len() == 1 {
+            Some(sub.creators.get(0).unwrap())
         } else {
             None
         };
         distribute_and_collect(&env, &subscriber, &stream_id, creator_to_update.as_ref());
 
         // Refresh Subscription state after collection (balance and last_collected will have changed)
-        Subscription = get_subscription(&env, &key);
+        sub = get_subscription(&env, &key);
 
         // 2. Apply the NEW rate starting from this second
-        stream.tier.rate_per_second = new_rate_per_second;
+        sub.tier.rate_per_second = new_rate_per_second;
 
         // 3. Atomically add more funds if requested (Common for Bronze -> Gold upgrades)
         if additional_amount > 0 {
-            let token_client = TokenClient::new(&env, &stream.token);
+            let token_client = TokenClient::new(&env, &sub.token);
             token_client.transfer(&subscriber, &env.current_contract_address(), &additional_amount);
-            stream.balance += additional_amount;
+            sub.balance += additional_amount;
         }
 
-        set_subscription(&env, &key, &stream);
+        set_subscription(&env, &key, &sub);
 
         // Notify indexing services of the tier change
         env.events().publish(
@@ -532,7 +554,7 @@ impl SubStreamContract {
     ///
     /// Calculation per stream:
     ///   1. Skip streams that are paused (channel-level pause).
-    ///   2. Respect the free trial window â€” no earnings accrue during the trial.
+    ///   2. Respect the free trial window Ã¢â‚¬â€ no earnings accrue during the trial.
     ///   3. Accrue `rate_per_second * elapsed_billable_seconds`, capped at
     ///      each stream's remaining balance.
     ///   4. Apply the creator's share percentage for group channels.
@@ -569,30 +591,8 @@ impl SubStreamContract {
 
         total_earned
     }
-}
 
-fn calculate_stream_earned(env: &Env, key: &DataKey, creator: &Address, now: u64, channel_paused: bool) -> i128 {
-    if channel_paused { return 0; }
-    let Subscription = get_subscription(env, key);
-    if stream.balance <= 0 || stream.tier.rate_per_second <= 0 { return 0; }
-
-    let trial_end = stream.start_time.saturating_add(stream.tier.trial_duration);
-    let charge_start = if stream.last_collected > trial_end { stream.last_collected } else { trial_end };
-    if now <= charge_start { return 0; }
-
-    let elapsed = (now - charge_start) as i128;
-    let mut gross_earned = elapsed.checked_mul(stream.tier.rate_per_second).unwrap_or(i128::MAX);
-    if gross_earned > stream.balance { gross_earned = stream.balance; }
-
-    if stream.creators.len() > 1 {
-        if let Some(idx) = stream.creators.iter().position(|c| *c == *creator) {
-            let percentage = stream.percentages.get(idx as u32).unwrap() as i128;
-            return (gross_earned * percentage) / 100;
-        }
-        return 0;
-    }
-    gross_earned
-}
+ 
 
     pub fn set_cliff_threshold(env: Env, creator: Address, threshold: i128) {
         creator.require_auth();
@@ -674,8 +674,6 @@ fn calculate_stream_earned(env: &Env, key: &DataKey, creator: &Address, now: u64
         }
     }
 
-    /// Direct tip from user to creator without subscription.
-    /// Transfers tokens directly from user to creator and emits a TipReceived event.
     pub fn tip(env: Env, user: Address, creator: Address, token: Address, amount: i128) {
         user.require_auth();
         
@@ -702,8 +700,29 @@ fn calculate_stream_earned(env: &Env, key: &DataKey, creator: &Address, now: u64
             amount,
         }.publish(&env);
     }
+}
 
-    
+fn calculate_stream_earned(env: &Env, key: &DataKey, creator: &Address, now: u64, channel_paused: bool) -> i128 {
+    if channel_paused { return 0; }
+    let sub = get_subscription(env, key);
+    if sub.balance <= 0 || sub.tier.rate_per_second <= 0 { return 0; }
+
+    let trial_end = sub.start_time.saturating_add(sub.tier.trial_duration);
+    let charge_start = if sub.last_collected > trial_end { sub.last_collected } else { trial_end };
+    if now <= charge_start { return 0; }
+
+    let elapsed = (now - charge_start) as i128;
+    let mut gross_earned = elapsed.checked_mul(sub.tier.rate_per_second).unwrap_or(i128::MAX);
+    if gross_earned > sub.balance { gross_earned = sub.balance; }
+
+    if sub.creators.len() > 1 {
+        if let Some(idx) = sub.creators.iter().position(|c| c == *creator) {
+            let percentage = sub.percentages.get(idx as u32).unwrap() as i128;
+            return (gross_earned * percentage) / 100;
+        }
+        return 0;
+    }
+    gross_earned
 }
 
 // ---------------------------------------------------------------------------
@@ -825,45 +844,37 @@ fn subscribe_core(
 
 fn distribute_and_collect(
     env: &Env,
-    subscriber: &Address,
+    beneficiary: &Address,
     stream_id: &Address,
     total_streamed_creator: Option<&Address>,
 ) -> i128 {
-    let key = subscription_key(subscriber, stream_id);
-    let mut Subscription = get_subscription(env, &key);
+    let key = subscription_key(beneficiary, stream_id);
+    let mut sub = get_subscription(env, &key);
     let now = env.ledger().timestamp();
 
-    if now <= stream.last_collected {
+    if now <= sub.last_collected {
         return 0;
     }
 
     if let Some(creator) = total_streamed_creator {
         if is_creator_paused(env, creator) {
-            // While paused, advance accounting clock so paused time is never billed.
-            stream.last_collected = now;
-            set_subscription(env, &key, &stream);
+            sub.last_collected = now;
+            set_subscription(env, &key, &sub);
             return 0;
         }
     }
 
-    let trial_end = stream
-        .start_time
-        .saturating_add(stream.tier.trial_duration);
-    let charge_start = if stream.last_collected > trial_end {
-        stream.last_collected
-    } else {
-        trial_end
-    };
-
-    if now <= charge_start {
-        return 0;
-    }
+    let trial_end = sub.start_time.saturating_add(sub.tier.trial_duration);
+    let charge_start = if sub.last_collected > trial_end { sub.last_collected } else { trial_end };
+    if now <= charge_start { return 0; }
 
     let elapsed = (now - charge_start) as i128;
-    let mut amount_to_collect = elapsed
-        .checked_mul(stream.tier.rate_per_second)
-        .unwrap_or(0);
+    let mut amount_to_collect = elapsed.checked_mul(sub.tier.rate_per_second).unwrap_or(0);
+    if amount_to_collect > sub.balance { amount_to_collect = sub.balance; }
+    if amount_to_collect <= 0 { return 0; }
 
+    let token_client = TokenClient::new(env, &sub.token);
+    let mut remaining = amount_to_collect;
     // If already in debt and grace period expired, don't collect more
     if stream.balance <= 0 && stream.last_funds_exhausted > 0 {
         let grace_period_end = stream.last_funds_exhausted.saturating_add(GRACE_PERIOD);
@@ -872,10 +883,41 @@ fn distribute_and_collect(
         }
     }
 
-    if amount_to_collect <= 0 {
-        return 0;
+    // Revenue sharing (Co-Op Split) logic
+    let mut distribution: Vec<(Address, u32)> = vec![env];
+    
+    // Check if there's a dynamic split for this creator (if it's a single creator sub)
+    if sub.creators.len() == 1 {
+        let creator = sub.creators.get(0).unwrap();
+        let split_key = DataKey::CreatorSplit(creator.clone());
+        if env.storage().persistent().has(&split_key) {
+            let partitions: Vec<SplitPartition> = env.storage().persistent().get(&split_key).unwrap();
+            for p in partitions.iter() {
+                distribution.push_back((p.partner, p.percentage));
+            }
+        } else {
+            distribution.push_back((creator, 100));
+        }
+    } else {
+        // Use the fixed group distribution
+        for i in 0..sub.creators.len() {
+            distribution.push_back((sub.creators.get(i).unwrap(), sub.percentages.get(i).unwrap()));
+        }
     }
 
+    let dist_len = distribution.len();
+    for i in 0..dist_len {
+        let (partner, percentage) = distribution.get(i).unwrap();
+        let payout = if (i + 1) == dist_len {
+            remaining // Dust management -> last one gets remainder
+        } else {
+            let amount = (amount_to_collect * percentage as i128) / 100;
+            remaining -= amount;
+            amount
+        };
+
+        if payout > 0 {
+            token_client.transfer(&env.current_contract_address(), &partner, &payout);
     // If balance is insufficient, check if we can still accrue debt (grace period).
     if amount_to_collect >= stream.balance {
         if stream.last_funds_exhausted == 0 {
@@ -916,14 +958,14 @@ fn distribute_and_collect(
         }
     }
 
-    stream.balance -= amount_to_collect;
-    stream.last_collected = now;
-    set_subscription(env, &key, &stream);
+    sub.balance -= amount_to_collect;
+    sub.last_collected = now;
+    set_subscription(env, &key, &sub);
 
-    // Update cumulative streamed for each creator
-    for i in 0..stream.creators.len() {
-        let creator = stream.creators.get(i).unwrap();
-        update_total_streamed(env, subscriber, &creator, amount_to_collect);
+    // Update cumulative streamed for the primary creator(s)
+    for i in 0..sub.creators.len() {
+        let creator = sub.creators.get(i).unwrap();
+        update_total_streamed(env, beneficiary, &creator, amount_to_collect);
     }
 
     amount_to_collect

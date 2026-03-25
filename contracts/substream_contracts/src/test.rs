@@ -42,7 +42,7 @@ fn test_grace_period_access_and_debt() {
     env.ledger().set_timestamp(100);
     client.subscribe(&subscriber, &creator, &token.address, &1000, &1);
 
-    // Still inside trial ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no charges yet, subscription is active.
+    // Still inside trial ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no charges yet, subscription is active.
     env.ledger().set_timestamp(105);
     assert!(client.is_subscribed(&subscriber, &creator));
 }
@@ -63,11 +63,11 @@ fn test_is_subscribed_expired() {
     let contract_id = env.register(SubStreamContract, ());
     let client = SubStreamContractClient::new(&env, &contract_id);
 
-    // Subscribe with exactly 10 tokens at 10/sec ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â depletes after 1 billable second.
+    // Subscribe with exactly 10 tokens at 10/sec ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â depletes after 1 billable second.
     env.ledger().set_timestamp(100);
     client.subscribe(&subscriber, &creator, &token.address, &10, &10);
 
-    // After trial + 2 seconds the balance is fully consumed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not subscribed.
+    // After trial + 2 seconds the balance is fully consumed ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â not subscribed.
     env.ledger().set_timestamp(100 + WEEK + 2);
     assert!(!client.is_subscribed(&subscriber, &creator));
 }
@@ -126,7 +126,7 @@ fn test_free_trial_ignores_claims_within_first_week() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "cannot cancel stream: minimum duration not met")]
+#[should_panic(expected = "cannot cancel: minimum duration not met")]
 fn test_cancel_before_minimum_duration() {
     let env = Env::default();
     env.mock_all_auths();
@@ -145,7 +145,7 @@ fn test_cancel_before_minimum_duration() {
     env.ledger().set_timestamp(100);
     client.subscribe(&subscriber, &creator, &token.address, &100, &1);
 
-    // Only 1 hour has passed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â minimum is 24 hours.
+    // Only 1 hour has passed ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â minimum is 24 hours.
     env.ledger().set_timestamp(100 + 3600);
     client.cancel(&subscriber, &creator);
 }
@@ -171,7 +171,7 @@ fn test_cancel_after_minimum_duration() {
     // 100 tokens at 1/sec: trial ends at start+WEEK, balance depletes at start+WEEK+100
     client.subscribe(&subscriber, &creator, &token.address, &100, &1);
 
-    // Cancel inside trial but after DAY ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â creator earns nothing, subscriber refunded.
+    // Cancel inside trial but after DAY ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â creator earns nothing, subscriber refunded.
     env.ledger().set_timestamp(start + DAY + 10);
     client.cancel(&subscriber, &creator);
 
@@ -198,7 +198,7 @@ fn test_cancel_exactly_at_minimum_duration() {
     env.ledger().set_timestamp(100);
     client.subscribe(&subscriber, &creator, &token.address, &100, &1);
 
-    // Exactly at DAY boundary ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â inside trial, so creator receives nothing.
+    // Exactly at DAY boundary ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â inside trial, so creator receives nothing.
     env.ledger().set_timestamp(100 + DAY);
     client.cancel(&subscriber, &creator);
 
@@ -266,13 +266,13 @@ fn test_inactive_stream_moves_to_temporary_storage() {
     env.ledger().set_timestamp(start);
     client.subscribe(&subscriber, &creator, &token.address, &10, &1);
 
-    let key = DataKey::Stream(subscriber.clone(), creator.clone());
+    let key = DataKey::Subscription(subscriber.clone(), creator.clone());
     env.as_contract(&contract_id, || {
         assert!(env.storage().persistent().has(&key));
         assert!(!env.storage().temporary().has(&key));
     });
 
-    // Deplete Subscription after trial; balance goes to 0 ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ moves to temporary storage.
+    // Deplete Subscription after trial; balance goes to 0 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ moves to temporary storage.
     env.ledger().set_timestamp(start + WEEK + 20);
     client.collect(&subscriber, &creator);
 
@@ -303,9 +303,9 @@ fn test_top_up_reactivates_stream_to_persistent_storage() {
     env.ledger().set_timestamp(start);
     client.subscribe(&subscriber, &creator, &token.address, &10, &1);
 
-    let key = DataKey::Stream(subscriber.clone(), creator.clone());
+    let key = DataKey::Subscription(subscriber.clone(), creator.clone());
 
-    // Deplete Subscription ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ temporary storage.
+    // Deplete Subscription ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ temporary storage.
     env.ledger().set_timestamp(start + WEEK + 20);
     client.collect(&subscriber, &creator);
 
@@ -314,7 +314,7 @@ fn test_top_up_reactivates_stream_to_persistent_storage() {
         assert!(!env.storage().persistent().has(&key));
     });
 
-    // Top up ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ moves back to persistent storage.
+    // Top up ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ moves back to persistent storage.
     client.top_up(&subscriber, &creator, &5);
 
     env.as_contract(&contract_id, || {
@@ -453,7 +453,7 @@ fn test_group_percentages_must_sum_to_100() {
         creator_4.clone(),
         creator_5.clone(),
     ];
-    // Sums to 90 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â should panic.
+    // Sums to 90 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â should panic.
     let percentages = vec![&env, 30u32, 20u32, 20u32, 10u32, 10u32];
 
     client.subscribe_group(
@@ -560,7 +560,7 @@ fn test_pause_channel_blocks_charges_and_unpause_resumes() {
     assert!(client.is_channel_paused(&creator));
     assert_eq!(token.balance(&creator), 40); // additional 10 * 2 settled on pause
 
-    // Collect while paused ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no additional charges.
+    // Collect while paused ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no additional charges.
     env.ledger().set_timestamp(start + WEEK + 100);
     client.collect(&subscriber, &creator);
     assert_eq!(token.balance(&creator), 40);
@@ -602,7 +602,7 @@ fn test_pause_channel_applies_to_all_subscribers() {
     // 30 seconds after trial.
     env.ledger().set_timestamp(start + WEEK + 30);
     client.pause_channel(&creator);
-    // Both streams settled at pause: 2 ÃƒÆ’Ã¢â‚¬â€ 30 = 60 tokens.
+    // Both streams settled at pause: 2 ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 30 = 60 tokens.
     assert_eq!(token.balance(&creator), 60);
 
     // 100-second pause window.
@@ -613,7 +613,7 @@ fn test_pause_channel_applies_to_all_subscribers() {
     env.ledger().set_timestamp(start + WEEK + 140);
     let total = client.withdraw_all(&creator, &10);
 
-    // Only post-unpause 10 seconds billable for each stream: 2 ÃƒÆ’Ã¢â‚¬â€ 10 = 20.
+    // Only post-unpause 10 seconds billable for each stream: 2 ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 10 = 20.
     assert_eq!(total, 20);
     assert_eq!(token.balance(&creator), 80);
     assert_eq!(token.balance(&contract_id), 320);
@@ -746,6 +746,65 @@ fn test_migrate_tier_with_top_up_is_atomic() {
     assert!(client.is_subscribed(&subscriber, &creator));
 }
 
+#[test]
+fn test_creator_coop_split_dynamic() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let subscriber = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let editor = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    let token = create_token_contract(&env, &admin);
+    let token_admin = token::StellarAssetClient::new(&env, &token.address);
+    token_admin.mint(&subscriber, &1000);
+
+    let contract_id = env.register(SubStreamContract, ());
+    let client = SubStreamContractClient::new(&env, &contract_id);
+
+    // 1. Subscribe initially (no split)
+    env.ledger().set_timestamp(0);
+    client.subscribe(&subscriber, &creator, &token.address, &1000, &10);
+
+    // 2. Set dynamic split halfway through (70% creator, 30% editor)
+    let partitions = vec![
+        &env,
+        SplitPartition { partner: creator.clone(), percentage: 70 },
+        SplitPartition { partner: editor.clone(), percentage: 30 },
+    ];
+    client.set_creator_split(&creator, &partitions);
+
+    // 3. Collect 10 seconds post-trial (WEEK + 10)
+    // Total should be 10 * 10 = 100 tokens.
+    // 70 to creator, 30 to editor.
+    env.ledger().set_timestamp(WEEK + 10);
+    client.collect(&subscriber, &creator);
+
+    assert_eq!(token.balance(&creator), 70);
+    assert_eq!(token.balance(&editor), 30);
+
+    // 4. Test dust management (3-way split: 33%, 33%, 34%)
+    // Last partner should take the remainder to avoid stuck tokens.
+    let guest = Address::generate(&env);
+    let partitions_dust = vec![
+        &env,
+        SplitPartition { partner: creator.clone(), percentage: 33 },
+        SplitPartition { partner: editor.clone(), percentage: 33 },
+        SplitPartition { partner: guest.clone(), percentage: 34 },
+    ];
+    client.set_creator_split(&creator, &partitions_dust);
+
+    // Collect another 10 seconds = 100 tokens.
+    // 33, 33, 34 respectively.
+    env.ledger().set_timestamp(WEEK + 20);
+    client.collect(&subscriber, &creator);
+
+    assert_eq!(token.balance(&creator), 70 + 33);
+    assert_eq!(token.balance(&editor), 30 + 33);
+    assert_eq!(token.balance(&guest), 34);
+}
+
 // ---------------------------------------------------------------------------
 // Cliff / access tiers
 // ---------------------------------------------------------------------------
@@ -769,7 +828,7 @@ fn test_cliff_based_access_before_threshold() {
     client.set_cliff_threshold(&creator, &50);
     assert_eq!(client.get_cliff_threshold(&creator), 50);
 
-    // No streaming yet ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â should not have access.
+    // No streaming yet ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â should not have access.
     assert!(!client.has_unlocked_access(&subscriber, &creator));
     assert_eq!(client.get_access_tier(&subscriber, &creator), 0);
 }
@@ -796,13 +855,13 @@ fn test_cliff_threshold_access() {
     env.ledger().set_timestamp(start);
     client.subscribe(&subscriber, &creator, &token.address, &100, &1);
 
-    // 30 seconds after trial: 30 tokens streamed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â below threshold.
+    // 30 seconds after trial: 30 tokens streamed ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â below threshold.
     env.ledger().set_timestamp(start + WEEK + 30);
     client.collect(&subscriber, &creator);
     assert!(!client.has_unlocked_access(&subscriber, &creator));
     assert_eq!(client.get_access_tier(&subscriber, &creator), 0);
 
-    // 50 more seconds: 80 total ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â at/above threshold.
+    // 50 more seconds: 80 total ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â at/above threshold.
     env.ledger().set_timestamp(start + WEEK + 80);
     client.collect(&subscriber, &creator);
     assert!(client.has_unlocked_access(&subscriber, &creator));
@@ -830,12 +889,12 @@ fn test_access_tiers_progression() {
     // 10000 tokens at 10/sec
     client.subscribe(&subscriber, &creator, &token.address, &10000, &10);
 
-    // 5 seconds post-trial: 50 tokens ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ tier 1
+    // 5 seconds post-trial: 50 tokens ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ tier 1
     env.ledger().set_timestamp(start + WEEK + 5);
     client.collect(&subscriber, &creator);
     assert_eq!(client.get_access_tier(&subscriber, &creator), 1);
 
-    // 25 more seconds: 300 total ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ tier 3
+    // 25 more seconds: 300 total ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ tier 3
     env.ledger().set_timestamp(start + WEEK + 30);
     client.collect(&subscriber, &creator);
     assert_eq!(client.get_access_tier(&subscriber, &creator), 3);
@@ -868,7 +927,7 @@ fn test_creator_metadata() {
 }
 
 // ---------------------------------------------------------------------------
-// calculate_total_earned ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â core feature for issue #59 / #12
+// calculate_total_earned ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â core feature for issue #59 / #12
 // ---------------------------------------------------------------------------
 
 
@@ -881,7 +940,7 @@ fn test_calculate_total_earned_returns_zero_when_no_subscribers() {
     let contract_id = env.register(SubStreamContract, ());
     let client = SubStreamContractClient::new(&env, &contract_id);
 
-    // No streams exist ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â should return 0.
+    // No streams exist ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â should return 0.
     assert_eq!(client.calculate_total_earned(&creator), 0);
 }
 
@@ -904,7 +963,7 @@ fn test_calculate_total_earned_zero_during_trial() {
     env.ledger().set_timestamp(start);
     client.subscribe(&subscriber, &creator, &token.address, &1000, &5);
 
-    // Still inside trial window ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no earnings yet.
+    // Still inside trial window ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no earnings yet.
     env.ledger().set_timestamp(start + WEEK - 1);
     assert_eq!(client.calculate_total_earned(&creator), 0);
 }
@@ -951,10 +1010,10 @@ fn test_calculate_total_earned_caps_at_stream_balance() {
 
     let start = 0u64;
     env.ledger().set_timestamp(start);
-    // Only 50 tokens deposited at 10/sec ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â depletes after 5 billable seconds.
+    // Only 50 tokens deposited at 10/sec ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â depletes after 5 billable seconds.
     client.subscribe(&subscriber, &creator, &token.address, &50, &10);
 
-    // Way past depletion ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â should be capped at 50.
+    // Way past depletion ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â should be capped at 50.
     env.ledger().set_timestamp(start + WEEK + 10000);
     assert_eq!(client.calculate_total_earned(&creator), 50);
 }
@@ -986,7 +1045,7 @@ fn test_calculate_total_earned_multiple_subscribers() {
     client.subscribe(&subscriber_2, &creator, &token.address, &10000, &2);
     client.subscribe(&subscriber_3, &creator, &token.address, &10000, &2);
 
-    // 60 seconds past trial: each Subscription earns 60 * 2 = 120 ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ total = 360.
+    // 60 seconds past trial: each Subscription earns 60 * 2 = 120 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ total = 360.
     env.ledger().set_timestamp(start + WEEK + 60);
     assert_eq!(client.calculate_total_earned(&creator), 360);
 }
@@ -1047,7 +1106,7 @@ fn test_calculate_total_earned_reflects_already_collected_portion() {
     // At the same timestamp the unclaimed balance should be 0 (just collected).
     assert_eq!(client.calculate_total_earned(&creator), 0);
 
-    // Advance another 50 seconds ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 50 * 2 = 100 more unclaimed.
+    // Advance another 50 seconds ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 50 * 2 = 100 more unclaimed.
     env.ledger().set_timestamp(start + WEEK + 150);
     assert_eq!(client.calculate_total_earned(&creator), 100);
 }
@@ -1145,7 +1204,7 @@ fn test_calculate_total_earned_no_mutation_verify_via_balance() {
 
     env.ledger().set_timestamp(start + WEEK + 100);
 
-    // Call the helper multiple times ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â it must not transfer tokens.
+    // Call the helper multiple times ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â it must not transfer tokens.
     let earned_1 = client.calculate_total_earned(&creator);
     let earned_2 = client.calculate_total_earned(&creator);
 
@@ -1183,10 +1242,10 @@ fn test_calculate_total_earned_mixed_single_and_group_streams() {
     let start = 0u64;
     env.ledger().set_timestamp(start);
 
-    // Direct stream: subscriber_direct ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ creator_a, 3/sec, 10000 deposit
+    // Direct stream: subscriber_direct ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ creator_a, 3/sec, 10000 deposit
     client.subscribe(&subscriber_direct, &creator_a, &token.address, &10000, &3);
 
-    // Group stream: subscriber_group ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ channel_id, 10/sec, 10000 deposit
+    // Group stream: subscriber_group ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ channel_id, 10/sec, 10000 deposit
     // creator_a gets 50%, others share the remaining 50%.
     let creators = vec![
         &env,

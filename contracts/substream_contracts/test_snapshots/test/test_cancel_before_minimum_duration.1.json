@@ -233,7 +233,7 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "Stream"
+                    "symbol": "Subscription"
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
@@ -256,6 +256,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "beneficiary"
+                    },
+                    "val": {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "creators"
                     },
                     "val": {
@@ -272,6 +280,14 @@
                     },
                     "val": {
                       "u64": "100"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "payer"
+                    },
+                    "val": {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     }
                   },
                   {
