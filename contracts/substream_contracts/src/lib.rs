@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::token::Client as TokenClient;
-use soroban_sdk::{contract, contractevent, contractimpl, contracttype, vec, Address, Bytes, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, Env, Vec};
 
 // Minimum flow duration: 24 hours in seconds (24 * 60 * 60 = 86400)
 const MINIMUM_FLOW_DURATION: u64 = 86400;
@@ -83,6 +83,7 @@ fn stream_key(subscriber: &Address, stream_id: &Address) -> DataKey {
     DataKey::Stream(subscriber.clone(), stream_id.clone())
 }
 
+/// Validates that the creators/percentages arrays are consistent and sum to 100.
 
 fn stream_exists(env: &Env, key: &DataKey) -> bool {
     env.storage().persistent().has(key) || env.storage().temporary().has(key)
@@ -149,6 +150,39 @@ fn validate_distribution(
     }
 }
 
+fn stream_exists(env: &Env, key: &DataKey) -> bool {
+    env.storage().persistent().has(key) || env.storage().temporary().has(key)
+}
+
+fn get_stream(env: &Env, key: &DataKey) -> Stream {
+    if env.storage().persistent().has(key) {
+        env.storage().persistent().get(key).unwrap()
+    } else if env.storage().temporary().has(key) {
+        env.storage().temporary().get(key).unwrap()
+    } else {
+        panic!("stream not found")
+    }
+}
+
+fn set_stream(env: &Env, key: &DataKey, stream: &Stream) {
+    if stream.balance > 0 {
+        env.storage().persistent().set(key, stream);
+        env.storage().temporary().remove(key);
+    } else {
+        env.storage().temporary().set(key, stream);
+        env.storage().persistent().remove(key);
+    }
+}
+
+fn remove_stream(env: &Env, key: &DataKey) {
+    env.storage().persistent().remove(key);
+    env.storage().temporary().remove(key);
+}
+
+// ---------------------------------------------------------------------------
+// Public contract interface
+// ---------------------------------------------------------------------------
+
 #[contractimpl]
 impl SubStreamContract {
     // Single-creator subscribe for backwards compatibility
@@ -186,7 +220,7 @@ impl SubStreamContract {
             start_time: now,
             last_funds_exhausted: 0,
             creators: vec![&env, creator.clone()],
-            percentages: vec![&env, 100],
+            percentages: vec![&env, 100u32],
         };
 
         env.storage().persistent().set(&key, &stream);
@@ -257,7 +291,7 @@ impl SubStreamContract {
         false
     }
 
-    // Minimal group wrappers
+    // Group channel wrappers
     pub fn subscribe_group(
         env: Env,
         subscriber: Address,
@@ -374,6 +408,10 @@ impl SubStreamContract {
         stream.tier.rate_per_second = new_rate_per_second;
         set_stream(&env, &key, &stream);
 
+        env.events().publish(
+            (symbol_short!("TierChg"), subscriber.clone(), creator.clone()),
+            (old_rate, new_rate_per_second),
+        );
         TierChanged {
             subscriber: subscriber.clone(),
             creator: creator.clone(),
@@ -401,6 +439,108 @@ impl SubStreamContract {
         }
 
         total
+    }
+
+    /// Read-only helper: calculates the total "earned but not yet withdrawn"
+    /// balance for `creator` across all their active subscriber streams.
+    ///
+    /// This function performs no transfers or state mutations. It uses the
+    /// current ledger timestamp to compute real-time accrued amounts, making
+    /// it suitable for frontend dashboards to display "Current Unclaimed Balance"
+    /// without requiring multiple RPC calls or expensive client-side iteration.
+    ///
+    /// Calculation per stream:
+    ///   1. Skip streams that are paused (channel-level pause).
+    ///   2. Respect the free trial window — no earnings accrue during the trial.
+    ///   3. Accrue `rate_per_second * elapsed_billable_seconds`, capped at
+    ///      each stream's remaining balance.
+    ///   4. Apply the creator's share percentage for group channels.
+    ///
+    /// Returns the sum of all unclaimed amounts denominated in the stream's
+    /// native token units (stroops for XLM-based tokens).
+    pub fn calculate_total_earned(env: Env, creator: Address) -> i128 {
+        let subs_key = DataKey::CreatorSubscribers(creator.clone());
+        let subs: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&subs_key)
+            .unwrap_or(vec![&env]);
+
+        let now = env.ledger().timestamp();
+        let channel_paused = is_creator_paused(&env, &creator);
+
+        let mut total_earned: i128 = 0;
+
+        for subscriber in subs.iter() {
+            let s_key = stream_key(&subscriber, &creator);
+
+            // Only consider streams that exist in persistent storage (active/funded).
+            if !stream_exists(&env, &s_key) {
+                continue;
+            }
+
+            let stream = get_stream(&env, &s_key);
+
+            // While the channel is paused, no new earnings accrue.
+            if channel_paused {
+                continue;
+            }
+
+            if stream.balance <= 0 || stream.tier.rate_per_second <= 0 {
+                continue;
+            }
+
+            // Determine the start of the billable window.
+            // Earnings only begin after the free trial period expires.
+            let trial_end = stream
+                .start_time
+                .saturating_add(stream.tier.trial_duration);
+            let charge_start = if stream.last_collected > trial_end {
+                stream.last_collected
+            } else {
+                trial_end
+            };
+
+            if now <= charge_start {
+                // Still inside the trial or no time has passed — nothing earned yet.
+                continue;
+            }
+
+            let elapsed = (now - charge_start) as i128;
+            let mut gross_earned = elapsed
+                .checked_mul(stream.tier.rate_per_second)
+                .unwrap_or(i128::MAX);
+
+            // Cap at the stream's remaining balance — can't earn more than what's there.
+            if gross_earned > stream.balance {
+                gross_earned = stream.balance;
+            }
+
+            // For group channels, find this creator's share percentage and prorate.
+            let mut creator_share: i128 = gross_earned;
+            let num_creators = stream.creators.len();
+            if num_creators > 1 {
+                // Locate the creator's index and apply their percentage.
+                let mut found_idx: Option<u32> = None;
+                for i in 0..num_creators {
+                    if stream.creators.get(i).unwrap() == creator {
+                        found_idx = Some(i);
+                        break;
+                    }
+                }
+                if let Some(idx) = found_idx {
+                    let percentage = stream.percentages.get(idx).unwrap() as i128;
+                    creator_share = (gross_earned * percentage) / 100;
+                } else {
+                    // Creator not in this stream's distribution — skip.
+                    continue;
+                }
+            }
+
+            total_earned = total_earned.checked_add(creator_share).unwrap_or(i128::MAX);
+        }
+
+        total_earned
     }
 
     pub fn set_cliff_threshold(env: Env, creator: Address, threshold: i128) {
@@ -483,8 +623,8 @@ impl SubStreamContract {
         }
     }
 
-    /// Direct tip from user to creator without subscription
-    /// Transfers tokens directly from user to creator and emits TipReceived event
+    /// Direct tip from user to creator without subscription.
+    /// Transfers tokens directly from user to creator and emits a TipReceived event.
     pub fn tip(env: Env, user: Address, creator: Address, token: Address, amount: i128) {
         user.require_auth();
         
@@ -500,6 +640,9 @@ impl SubStreamContract {
         let token_client = TokenClient::new(&env, &token);
         token_client.transfer(&user, &creator, &amount);
         
+        // Emit TipReceived event: topics = (event_name, user, creator, token), data = amount
+        env.events().publish(
+            (symbol_short!("TipRcvd"), user.clone(), creator.clone(), token.clone()),
         // Emit TipReceived event
         TipReceived {
             user: user.clone(),
@@ -509,9 +652,13 @@ impl SubStreamContract {
         }.publish(&env);
     }
 
+    
 }
 
+// ---------------------------------------------------------------------------
 // Helper functions
+// ---------------------------------------------------------------------------
+
 fn is_creator_paused(env: &Env, creator: &Address) -> bool {
     env.storage()
         .persistent()
@@ -547,7 +694,19 @@ fn remove_subscriber_from_creator(env: &Env, creator: &Address, subscriber: &Add
     env.storage().persistent().set(&key, &updated);
 }
 
+
+fn update_total_streamed(env: &Env, subscriber: &Address, creator: &Address, amount: i128) {
+    let key = DataKey::TotalStreamed(subscriber.clone(), creator.clone());
+    let current_total: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&key, &(current_total + amount));
+}
+
+// ---------------------------------------------------------------------------
 // Internal implementations
+// ---------------------------------------------------------------------------
+
 fn subscribe_internal(
     env: &Env,
     subscriber: &Address,
@@ -578,21 +737,17 @@ fn subscribe_internal(
         balance: amount,
         last_collected: now,
         start_time: now,
+        creators: creators.clone(),
+        percentages: percentages.clone(),
         last_funds_exhausted: 0,
         creators,
         percentages,
     };
     env.storage().persistent().set(&key, &stream);
-    // track subscriber in creator list for single-creator case
-    if let DataKey::Stream(_, creator_addr) = &key {
-        let creator_key = DataKey::CreatorSubscribers(creator_addr.clone());
-        let mut subs: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&creator_key)
-            .unwrap_or(vec![env]);
-        subs.push_back(subscriber.clone());
-        env.storage().persistent().set(&creator_key, &subs);
+
+    // Track subscriber in each participant's subscriber map.
+    for creator in creators.iter() {
+        add_subscriber_to_creator(env, &creator, subscriber);
     }
 
     Subscribed {
@@ -874,7 +1029,7 @@ fn cancel_group_internal(env: &Env, subscriber: &Address, stream_id: &Address) {
     }
 
     // Check minimum flow duration
-    let stream: Stream = env.storage().persistent().get(&key).unwrap();
+    let stream: Stream = get_stream(env, &key);
     let current_time = env.ledger().timestamp();
     if current_time < stream.start_time + MINIMUM_FLOW_DURATION {
         let remaining_time = stream.start_time + MINIMUM_FLOW_DURATION - current_time;
@@ -897,6 +1052,7 @@ fn cancel_group_internal(env: &Env, subscriber: &Address, stream_id: &Address) {
 
     // Remove subscriber from stream_id's subscriber list
     remove_subscriber_from_creator(env, stream_id, subscriber);
+}
 
     Unsubscribed {
         subscriber: subscriber.clone(),

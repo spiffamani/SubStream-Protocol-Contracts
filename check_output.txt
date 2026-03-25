@@ -1,0 +1,107 @@
+cargo :     Checking 
+substream_contracts v0.0.0 
+(C:\Users\USER\SubStream-Pr
+otocol-Contracts\contracts\
+substream_contracts)
+At line:1 char:1
++ cargo check 
+--manifest-path contracts/s
+ubstream_contracts/Cargo.to
+ml  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~
+    + CategoryInfo         
+     : NotSpecified: (     
+   Checking su...ream_co   
+ ntracts):String) [], R    
+emoteException
+    + FullyQualifiedErrorI 
+   d : NativeCommandError
+ 
+error: contract function 
+name is too long: 33, max 
+is 32
+   --> contracts\substream_
+contracts\src\lib.rs:366:12
+    |
+366 |     pub fn calculate_
+total_earned_by_creator(env
+: Env, creator: Address) 
+-> i128 {
+    |            ^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated 
+method `soroban_sdk::events
+::Events::publish`: use 
+the #[contractevent] macro 
+on a contract event type
+   --> contracts\substream_
+contracts\src\lib.rs:322:22
+    |
+322 |         
+env.events().publish(
+    |                      
+^^^^^^^
+    |
+    = note: 
+`#[warn(deprecated)]` on 
+by default
+
+warning: use of deprecated 
+method `soroban_sdk::events
+::Events::publish`: use 
+the #[contractevent] macro 
+on a contract event type
+   --> contracts\substream_
+contracts\src\lib.rs:549:22
+    |
+549 |         
+env.events().publish(
+    |                      
+^^^^^^^
+
+error[E0382]: borrow of 
+moved value: `creators`
+   --> contracts\substream_
+contracts\src\lib.rs:646:20
+    |
+617 |     creators: 
+Vec<Address>,
+    |     -------- move 
+occurs because `creators` 
+has type `soroban_sdk::Vec<
+soroban_sdk::Address>`, 
+which does not implement 
+the `Copy` trait
+...
+640 |         creators,
+    |         -------- 
+value moved here
+...
+646 |     for creator in 
+creators.iter() {
+    |                    
+^^^^^^^^ value borrowed 
+here after move
+    |
+help: consider cloning the 
+value if the performance 
+cost is acceptable
+    |
+640 |         creators: 
+creators.clone(),
+    |                 
+++++++++++++++++++
+
+For more information about 
+this error, try `rustc 
+--explain E0382`.
+warning: 
+`substream_contracts` 
+(lib) generated 2 warnings
+error: could not compile 
+`substream_contracts` 
+(lib) due to 2 previous 
+errors; 2 warnings emitted

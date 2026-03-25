@@ -1,0 +1,75 @@
+cargo :    Compiling 
+substream_contracts v0.0.0 
+(C:\Users\USER\SubStream-Pr
+otocol-Contracts\contracts\
+substream_contracts)
+At line:1 char:1
++ cargo test 
+--manifest-path contracts/s
+ubstream_contracts/Cargo.to
+ml 2 ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~
+    + CategoryInfo         
+     : NotSpecified: (     
+  Compiling su...ream_co   
+ ntracts):String) [], R    
+emoteException
+    + FullyQualifiedErrorI 
+   d : NativeCommandError
+ 
+warning: use of deprecated 
+method `soroban_sdk::events
+::Events::publish`: use 
+the #[contractevent] macro 
+on a contract event type
+   --> contracts\substream_
+contracts\src\lib.rs:322:22
+    |
+322 |         
+env.events().publish(
+    |                      
+^^^^^^^
+    |
+    = note: 
+`#[warn(deprecated)]` on 
+by default
+
+warning: use of deprecated 
+method `soroban_sdk::events
+::Events::publish`: use 
+the #[contractevent] macro 
+on a contract event type
+   --> contracts\substream_
+contracts\src\lib.rs:549:22
+    |
+549 |         
+env.events().publish(
+    |                      
+^^^^^^^
+
+error[E0599]: no method 
+named `len` found for 
+struct `ContractEvents` in 
+the current scope
+   --> contracts\substream_
+contracts\src\test.rs:700:2
+0
+    |
+700 |     
+assert!(events.len() > 0);
+    |                    
+^^^ method not found in 
+`ContractEvents`
+
+For more information about 
+this error, try `rustc 
+--explain E0599`.
+warning: 
+`substream_contracts` (lib 
+test) generated 2 warnings
+error: could not compile 
+`substream_contracts` (lib 
+test) due to 1 previous 
+error; 2 warnings emitted
