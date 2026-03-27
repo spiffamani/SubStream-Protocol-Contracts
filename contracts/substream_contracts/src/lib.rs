@@ -6,6 +6,18 @@ use soroban_sdk::{contract, contractevent, contractimpl, contracttype, vec, Addr
 const MINIMUM_FLOW_DURATION: u64 = 86400;
 const FREE_TRIAL_DURATION: u64 = 7 * 24 * 60 * 60;
 const GRACE_PERIOD: u64 = 24 * 60 * 60; // 24 hours in seconds
+const GENESIS_NFT_ADDRESS: &str = "CAS3J7GYCCX7RRBHAHXDUY3OOWFMTIDDNVGCH6YOY7W7Y7G656H2HHMA";
+const DISCOUNT_BPS: i128 = 2000; // 20% discount
+
+fn is_genesis_member(env: &Env, user: &Address) -> bool {
+    let nft_address = Address::from_string(&soroban_sdk::String::from_str(env, GENESIS_NFT_ADDRESS));
+    let client = TokenClient::new(env, &nft_address);
+    client.balance(user) > 0
+}
+
+fn apply_discount(rate: i128) -> i128 {
+    rate * (10000 - DISCOUNT_BPS) / 10000
+}
 
 // ---------------------------------------------------------------------------
 // STEP 1 — DataKey enum with new ContractAdmin + VerifiedCreator variants
@@ -287,7 +299,7 @@ impl SubStreamContract {
     /// View: returns true only if the user has active funds remaining (not expired)
     pub fn is_subscribed(env: Env, subscriber: Address, creator: Address) -> bool {
         let key = subscription_key(&subscriber, &creator);
-        if !env.storage().persistent().has(&key) {
+        if !env.storage().persistent().has(&key) && !env.storage().temporary().has(&key) {
             return false;
         }
         let sub: Subscription = env.storage().persistent().get(&key).unwrap();
@@ -460,7 +472,7 @@ impl SubStreamContract {
         env: Env,
         subscriber: Address,
         stream_id: Address,
-        new_rate_per_second: i128,
+        mut new_rate_per_second: i128,
         additional_amount: i128,
     ) {
         subscriber.require_auth();
@@ -468,6 +480,11 @@ impl SubStreamContract {
         let key = subscription_key(&subscriber, &stream_id);
         if !subscription_exists(&env, &key) {
             panic!("Subscription not found");
+        }
+
+        // Apply NFT discount if applicable
+        if is_genesis_member(&env, &subscriber) {
+            new_rate_per_second = apply_discount(new_rate_per_second);
         }
 
         let mut sub = get_subscription(&env, &key);
@@ -727,7 +744,7 @@ fn subscribe_core(
     stream_id: &Address,
     token: &Address,
     amount: i128,
-    rate_per_second: i128,
+    mut rate_per_second: i128,
     creators: Vec<Address>,
     percentages: Vec<u32>,
 ) {
@@ -740,6 +757,11 @@ fn subscribe_core(
     let key = subscription_key(beneficiary, stream_id);
     if subscription_exists(env, &key) {
         panic!("subscription already exists for this beneficiary");
+    }
+
+    // Apply NFT discount if applicable
+    if is_genesis_member(env, beneficiary) {
+        rate_per_second = apply_discount(rate_per_second);
     }
 
     let token_client = TokenClient::new(env, token);
@@ -761,7 +783,7 @@ fn subscribe_core(
         payer: payer.clone(),
         beneficiary: beneficiary.clone(),
     };
-    env.storage().persistent().set(&key, &sub);
+    set_subscription(env, &key, &sub);
 
     if payer != beneficiary {
         let gift_key = DataKey::GiftsReceived(beneficiary.clone());
@@ -873,11 +895,7 @@ fn cancel_internal(env: &Env, beneficiary: &Address, stream_id: &Address) {
 
     let now = env.ledger().timestamp();
     if now < sub.start_time + MINIMUM_FLOW_DURATION {
-        let remaining_time = sub.start_time + MINIMUM_FLOW_DURATION - now;
-        panic!(
-            "cannot cancel: minimum duration not met. {} seconds remaining",
-            remaining_time
-        );
+        panic!("cannot cancel: minimum duration not met");
     }
 
     let creator_to_update = if sub.creators.len() == 1 {
